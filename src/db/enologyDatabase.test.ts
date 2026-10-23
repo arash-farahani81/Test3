@@ -857,6 +857,43 @@ test('EnologyDatabaseService: deleteBatch atomic cascade deletion and addLog 150
   // Benchmark logs must still be preserved
   assert.ok(enologyDb.getLogs('tank-a').some((l) => l.isBenchmark === true));
 
+  // Verify hasDemoData() detects demo logs and demo labAnalyses even when demo batches and additions are removed
+  enologyDb.startRealBatchMode();
+  assert.equal(enologyDb.hasDemoData(), false);
+
+  enologyDb.addLog({
+    id: 'demo-log-only',
+    tankId: 'tank-a',
+    dayNumber: 1,
+    dateTime: '۱۴۰۵/۰۷/۱۱',
+    stageTitle: 'لاگ دمو',
+    brix: 21,
+    sg: 1.088,
+    tempCap: 22,
+    tempRoom: 20,
+    ph: 3.52,
+    pigeageDone: false,
+    isBenchmark: false,
+    isDemo: true
+  });
+  assert.equal(enologyDb.hasDemoData(), true, 'hasDemoData must return true when a non-deleted demo log exists');
+  enologyDb.deleteLog('demo-log-only');
+  assert.equal(enologyDb.hasDemoData(), false);
+
+  const demoAnalysis = enologyDb.addLabAnalysis({
+    batchId: 'batch-real',
+    tankId: 'tank-a',
+    date: '۱۴۰۵/۰۷/۱۱',
+    testType: 'hydrometer_temp',
+    targetAnalyte: 'SG',
+    measuredValue: 1.088,
+    unit: 'SG',
+    isDemo: true
+  });
+  assert.equal(enologyDb.hasDemoData(), true, 'hasDemoData must return true when a non-deleted demo labAnalysis exists');
+  enologyDb.deleteLabAnalysis(demoAnalysis.id);
+  assert.equal(enologyDb.hasDemoData(), false);
+
   enologyDb.resetToFactoryDefaults();
 });
 

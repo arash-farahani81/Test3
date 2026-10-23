@@ -554,7 +554,13 @@ export const EnologyUiProvider: React.FC<{ children: React.ReactNode }> = ({
       const latest = customEvent.detail ?? enologyDb.getEquipmentProfile();
       setEquipmentProfileState(latest);
       const nextPrecision: ScalePrecisionGrams =
-        latest.scalePrecisionGrams ?? (latest.hasPrecisionScale001g ? 0.01 : 1);
+        latest.scalePrecisionGrams === 0.01 ||
+        latest.scalePrecisionGrams === 0.1 ||
+        latest.scalePrecisionGrams === 1
+          ? latest.scalePrecisionGrams
+          : latest.hasPrecisionScale001g
+            ? 0.01
+            : 1;
       setScalePrecisionState(nextPrecision);
     };
     window.addEventListener('enology-equipment-profile-sync', handleEqSync);
@@ -855,12 +861,21 @@ export const EnologyUiProvider: React.FC<{ children: React.ReactNode }> = ({
         ...(normalizedHasPrecision001 !== undefined
           ? { hasPrecisionScale001g: normalizedHasPrecision001 }
           : {}),
+        ...(nextProfile.scalePrecisionGrams === 0.01 ||
+        nextProfile.scalePrecisionGrams === 0.1 ||
+        nextProfile.scalePrecisionGrams === 1
+          ? { scalePrecisionGrams: nextProfile.scalePrecisionGrams }
+          : {}),
         onboardingCompleted: markCompleted
       });
       setEquipmentProfileState(saved);
 
       const nextPrecision: ScalePrecisionGrams =
-        nextProfile.scalePrecisionGrams ?? (saved.hasPrecisionScale001g ? 0.01 : 1);
+        saved.scalePrecisionGrams === 0.01 ||
+        saved.scalePrecisionGrams === 0.1 ||
+        saved.scalePrecisionGrams === 1
+          ? saved.scalePrecisionGrams
+          : nextProfile.scalePrecisionGrams ?? (saved.hasPrecisionScale001g ? 0.01 : 1);
       setScalePrecisionState(nextPrecision);
       const serializedPrecision = JSON.stringify(nextPrecision);
       writeStorageString(STORAGE_KEY_SCALE_PRECISION, serializedPrecision);

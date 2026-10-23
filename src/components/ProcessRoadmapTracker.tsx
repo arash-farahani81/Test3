@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   CheckCircle2,
   Circle,
@@ -36,7 +36,11 @@ import {
 } from 'lucide-react';
 import { useLocalStorageState } from '../utils/useLocalStorage.ts';
 import { enologyDb } from '../db/enologyDatabase.ts';
-import { useFlexibleProtocol, type DynamicProtocolPlan } from '../data/masterProtocolConfig.ts';
+import {
+  useFlexibleProtocol,
+  getEffectiveProtocolPlanForBatch,
+  type DynamicProtocolPlan
+} from '../data/masterProtocolConfig.ts';
 import { useEnologyUi } from '../context/EnologyUiContext.tsx';
 import {
   formatDoseForEquipment,
@@ -337,6 +341,38 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
     openYeastSelectorModal
   } = useEnologyUi();
   const { params: flexParams, plan: flexPlan, isModifiedFromIdeal } = useFlexibleProtocol();
+  void flexParams;
+  const batchPlan = useMemo(
+    () => getEffectiveProtocolPlanForBatch(activeBatch, flexPlan),
+    [activeBatch, flexPlan]
+  );
+  const redTankMultiplier = tankCount === 1 ? 2 : 1;
+  const effectiveRoadmapPlan = useMemo(() => {
+    if (redTankMultiplier === 1) return batchPlan;
+    const r2 = (v: number) => Math.round(v * redTankMultiplier * 100) / 100;
+    return {
+      ...batchPlan,
+      volumes: {
+        ...batchPlan.volumes,
+        crushedMashPerTankL: r2(batchPlan.volumes.crushedMashPerTankL),
+        initialLiquidPerTankL: r2(batchPlan.volumes.initialLiquidPerTankL),
+        saigneePerTankL: r2(batchPlan.volumes.saigneePerTankL),
+        redMashAfterSaigneePerTankL: r2(batchPlan.volumes.redMashAfterSaigneePerTankL),
+        redLiquidFermentPerTankL: r2(batchPlan.volumes.redLiquidFermentPerTankL),
+        freeRunPerTankL: r2(batchPlan.volumes.freeRunPerTankL),
+        heavyPressPerTankL: r2(batchPlan.volumes.heavyPressPerTankL),
+        rack1PerTankL: r2(batchPlan.volumes.rack1PerTankL),
+        rack2PerTankL: r2(batchPlan.volumes.rack2PerTankL),
+        finalRedPerTankL: r2(batchPlan.volumes.finalRedPerTankL)
+      },
+      dosages: Object.fromEntries(
+        Object.entries(batchPlan.dosages).map(([k, val]) => [
+          k,
+          k.includes('PerTank') ? r2(val as number) : val
+        ])
+      ) as typeof batchPlan.dosages
+    };
+  }, [batchPlan, redTankMultiplier]);
   const [showFlexibleCustomizer, setShowFlexibleCustomizer] = useState<boolean>(false);
   const [showTimerHub, setShowTimerHub] = useState<boolean>(false);
   const [isQuickLogModalOpen, setIsQuickLogModalOpen] = useState<boolean>(false);
@@ -619,7 +655,7 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
   const applyRoadmapChemPreset = (presetId: string, targetTank: TankId) => {
     setSelectedRoadmapChemPresetId(presetId);
     if (!presetId) return;
-    const found = getSmartAdditivePresets(flexPlan, targetTank).find((p) => p.id === presetId);
+    const found = getSmartAdditivePresets(effectiveRoadmapPlan, targetTank).find((p) => p.id === presetId);
     if (found) {
       setChemName(found.compoundName);
       setChemAmount(`${found.amount}${found.unit}`);
@@ -635,12 +671,12 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
   const currentStep = ZERO_TO_HUNDRED_STEPS.find((s) => s.id === currentStepId) || ZERO_TO_HUNDRED_STEPS[0];
   const nextStep = ZERO_TO_HUNDRED_STEPS.find((s) => s.id === currentStepId + 1);
   const activeStepLabTools = getStepLabTools(currentStep.id);
-  const activeStepDynamicSummary = getDynamicStepDoseSummary(currentStep.id, flexPlan);
+  const activeStepDynamicSummary = getDynamicStepDoseSummary(currentStep.id, effectiveRoadmapPlan);
   const activeStepTimers = allTimers.filter((t) => t.stepIds.includes(currentStep.id));
 
   // Sync quick form default values when active step or flexible protocol plan changes
   useEffect(() => {
-    const { dosages: d, triggers: t, params: p } = flexPlan;
+    const { dosages: d, triggers: t, params: p } = effectiveRoadmapPlan;
     if (currentStepId === 4) {
       setQuickDay(0);
       setQuickBrix(p.initialBrix);
@@ -707,7 +743,7 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
       setChemName(currentStep.defaultChemicalName);
     }
     setSelectedRoadmapChemPresetId('');
-  }, [currentStepId, flexPlan, currentStep.defaultChemicalName]);
+  }, [currentStepId, effectiveRoadmapPlan, currentStep.defaultChemicalName]);
 
   const totalStepsCount = ZERO_TO_HUNDRED_STEPS.length;
   const completedCount = completedSteps.length;
@@ -791,22 +827,158 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
       activeBatch?.id ?? (quickTank === 'tank-rose' ? 'batch-rose-1403' : 'batch-rasha-1403');
     const referenceVolumeL =
       quickTank === 'tank-rose'
-        ? flexPlan.volumes.roseClarifiedFermentL
+        ? effectiveRoadmapPlan.volumes.roseClarifiedFermentL
         : currentStep.id >= 25
-        ? flexPlan.volumes.rack1PerTankL
-        : flexPlan.volumes.redLiquidFermentPerTankL;
+        ? effectiveRoadmapPlan.volumes.rack1PerTankL
+        : effectiveRoadmapPlan.volumes.redLiquidFermentPerTankL;
     const rawName = chemName || currentStep.defaultChemicalName || 'افزودنی انولوژی';
+    const isRose = quickTank === 'tank-rose';
+    const d = effectiveRoadmapPlan.dosages;
+    const nowStr = getCurrentPersianDateTimeStr();
     const isCombinedBactilessKms =
-      /bactiless|بکتی‌لس|بکتیلس|باکتیلس/i.test(rawName) &&
-      /kms|k2s2o5|سولفیت/i.test(rawName);
+      (!selectedRoadmapChemPresetId && currentStep.id === 27) ||
+      (/bactiless|بکتی‌لس|بکتیلس|باکتیلس/i.test(rawName) &&
+        /kms|k2s2o5|سولفیت/i.test(rawName));
 
-    if (isCombinedBactilessKms) {
-      const bactilessAmt = flexPlan.dosages.bactilessRedPerTankG;
-      const kmsAmt = flexPlan.dosages.day11KmsPerTankG;
+    if (!selectedRoadmapChemPresetId && currentStep.id === 8) {
       enologyDb.addAddition({
         batchId: resolvedBatchId,
         tankId: quickTank,
-        timestamp: getCurrentPersianDateTimeStr(),
+        timestamp: nowStr,
+        stageTitle: `گام ${currentStep.id}: ${currentStep.title}`,
+        compoundName: 'متابی‌سولفیت پتاسیم (KMS پس از سانیه)',
+        compoundType: 'kms',
+        pubchemCid: 24446,
+        referenceVolumeL,
+        amount: d.postSaigneeKmsPerTankG,
+        unit: 'g',
+        purpose: chemPurpose || currentStep.keyAction,
+        operatorNote: `ثبت زنده از نقشه راه - گام ${currentStep.id} (بخش ۱: KMS)`,
+        milestoneId: 'post-saignee-kms-enzyme'
+      });
+      enologyDb.addAddition({
+        batchId: resolvedBatchId,
+        tankId: quickTank,
+        timestamp: nowStr,
+        stageTitle: `گام ${currentStep.id}: ${currentStep.title}`,
+        compoundName: 'آنزیم پکتولیتیک (شکست پکتین پوست رشه)',
+        compoundType: 'enzyme',
+        referenceVolumeL,
+        amount: isRose ? d.pecticEnzymeRoseG : d.pecticEnzymeRedPerTankG,
+        unit: 'g',
+        purpose: chemPurpose || currentStep.keyAction,
+        operatorNote: `ثبت زنده از نقشه راه - گام ${currentStep.id} (بخش ۲: آنزیم پکتولیتیک)`,
+        milestoneId: 'post-saignee-kms-enzyme'
+      });
+    } else if (!selectedRoadmapChemPresetId && currentStep.id === 11) {
+      enologyDb.addAddition({
+        batchId: resolvedBatchId,
+        tankId: quickTank,
+        timestamp: nowStr,
+        stageTitle: `گام ${currentStep.id}: ${currentStep.title}`,
+        compoundName: 'تانن شراب سفید (فاز ۱ - مهار آنزیم اکسیداز)',
+        compoundType: 'tannin_white',
+        referenceVolumeL,
+        amount: d.whiteTanninRedPhase1PerTankG,
+        unit: 'g',
+        purpose: chemPurpose || currentStep.keyAction,
+        operatorNote: `ثبت زنده از نقشه راه - گام ${currentStep.id} (بخش ۱: تانن سفید)`,
+        milestoneId: 'phase1-tannins-ph'
+      });
+      enologyDb.addAddition({
+        batchId: resolvedBatchId,
+        tankId: quickTank,
+        timestamp: nowStr,
+        stageTitle: `گام ${currentStep.id}: ${currentStep.title}`,
+        compoundName: 'تانن شراب قرمز (فاز ۱ - هم‌رنگ‌دانه‌سازی)',
+        compoundType: 'tannin_red',
+        referenceVolumeL,
+        amount: d.redTanninPhase1PerTankG,
+        unit: 'g',
+        purpose: chemPurpose || currentStep.keyAction,
+        operatorNote: `ثبت زنده از نقشه راه - گام ${currentStep.id} (بخش ۲: تانن قرمز)`,
+        milestoneId: 'phase1-tannins-ph'
+      });
+    } else if (!selectedRoadmapChemPresetId && currentStep.id === 13) {
+      enologyDb.addAddition({
+        batchId: resolvedBatchId,
+        tankId: quickTank,
+        timestamp: nowStr,
+        stageTitle: `گام ${currentStep.id}: ${currentStep.title}`,
+        compoundName: 'مخمر منتخب شراب‌سازی (تلقیح روز ۱)',
+        compoundType: 'yeast',
+        referenceVolumeL,
+        amount: isRose ? d.yeastRoseG : d.yeastRedPerTankG,
+        unit: 'g',
+        purpose: chemPurpose || currentStep.keyAction,
+        operatorNote: `ثبت زنده از نقشه راه - گام ${currentStep.id} (بخش ۱: مخمر)`,
+        milestoneId: 'yeast-inoculation'
+      });
+      enologyDb.addAddition({
+        batchId: resolvedBatchId,
+        tankId: quickTank,
+        timestamp: nowStr,
+        stageTitle: `گام ${currentStep.id}: ${currentStep.title}`,
+        compoundName: 'مکمل آبرسانی Go-Ferm Protect',
+        compoundType: 'go_ferm',
+        referenceVolumeL,
+        amount: isRose ? d.goFermRoseG : d.goFermRedPerTankG,
+        unit: 'g',
+        purpose: chemPurpose || currentStep.keyAction,
+        operatorNote: `ثبت زنده از نقشه راه - گام ${currentStep.id} (بخش ۲: Go-Ferm)`,
+        milestoneId: 'yeast-inoculation'
+      });
+    } else if (!selectedRoadmapChemPresetId && currentStep.id === 17) {
+      enologyDb.addAddition({
+        batchId: resolvedBatchId,
+        tankId: quickTank,
+        timestamp: nowStr,
+        stageTitle: `گام ${currentStep.id}: ${currentStep.title}`,
+        compoundName: 'Fermaid K (تغذیه کمپلکس SNA-2)',
+        compoundType: 'fermaid_k',
+        referenceVolumeL,
+        amount: isRose ? d.fermaidK2RoseG : d.fermaidK2RedPerTankG,
+        unit: 'g',
+        purpose: chemPurpose || currentStep.keyAction,
+        operatorNote: `ثبت زنده از نقشه راه - گام ${currentStep.id} (بخش ۱: Fermaid K)`,
+        milestoneId: 'sna-2-dap'
+      });
+      enologyDb.addAddition({
+        batchId: resolvedBatchId,
+        tankId: quickTank,
+        timestamp: nowStr,
+        stageTitle: `گام ${currentStep.id}: ${currentStep.title}`,
+        compoundName: 'دی‌آمونیوم فسفات DAP (تغذیه SNA-2)',
+        compoundType: 'dap',
+        pubchemCid: 24261,
+        referenceVolumeL,
+        amount: isRose ? d.dap2RoseG : d.dap2RedPerTankG,
+        unit: 'g',
+        purpose: chemPurpose || currentStep.keyAction,
+        operatorNote: `ثبت زنده از نقشه راه - گام ${currentStep.id} (بخش ۲: DAP)`,
+        milestoneId: 'sna-2-dap'
+      });
+      enologyDb.addAddition({
+        batchId: resolvedBatchId,
+        tankId: quickTank,
+        timestamp: nowStr,
+        stageTitle: `گام ${currentStep.id}: ${currentStep.title}`,
+        compoundName: 'مکمل روی (Wyeast Zinc - SNA-2)',
+        compoundType: 'zinc',
+        referenceVolumeL,
+        amount: isRose ? d.zincRoseG : d.zincRedPerTankG,
+        unit: 'g',
+        purpose: chemPurpose || currentStep.keyAction,
+        operatorNote: `ثبت زنده از نقشه راه - گام ${currentStep.id} (بخش ۳: روی)`,
+        milestoneId: 'sna-2-dap'
+      });
+    } else if (isCombinedBactilessKms) {
+      const bactilessAmt = isRose ? d.bactilessRoseG : d.bactilessRedPerTankG;
+      const kmsAmt = isRose ? d.rosePostFermKmsG : d.day11KmsPerTankG;
+      enologyDb.addAddition({
+        batchId: resolvedBatchId,
+        tankId: quickTank,
+        timestamp: nowStr,
         stageTitle: `گام ${currentStep.id}: ${currentStep.title}`,
         compoundName: 'Bactiless (کیتوزان قفل بیولوژیکی روز ۱۱)',
         compoundType: 'bactiless',
@@ -814,12 +986,13 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
         amount: bactilessAmt,
         unit: 'g',
         purpose: chemPurpose || currentStep.keyAction,
-        operatorNote: `ثبت زنده از نقشه راه - گام ${currentStep.id} (بخش ۱: باکتی‌لس)`
+        operatorNote: `ثبت زنده از نقشه راه - گام ${currentStep.id} (بخش ۱: باکتی‌لس)`,
+        milestoneId: 'day-11-racking-bactiless'
       });
       enologyDb.addAddition({
         batchId: resolvedBatchId,
         tankId: quickTank,
-        timestamp: getCurrentPersianDateTimeStr(),
+        timestamp: nowStr,
         stageTitle: `گام ${currentStep.id}: ${currentStep.title}`,
         compoundName: 'متابی‌سولفیت پتاسیم (KMS قفل روز ۱۱)',
         compoundType: 'kms',
@@ -828,7 +1001,8 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
         amount: kmsAmt,
         unit: 'g',
         purpose: chemPurpose || currentStep.keyAction,
-        operatorNote: `ثبت زنده از نقشه راه - گام ${currentStep.id} (بخش ۲: KMS)`
+        operatorNote: `ثبت زنده از نقشه راه - گام ${currentStep.id} (بخش ۲: KMS)`,
+        milestoneId: 'day-11-racking-bactiless'
       });
     } else {
       const lower = rawName.toLowerCase();
@@ -1884,11 +2058,11 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
                       <option value="">— دوز پیش‌فرض گام {currentStep.id} (یا انتخاب سایر مواد از لیست) —</option>
                       {Array.from(
                         new Set(
-                          getSmartAdditivePresets(flexPlan, quickTank).map((p) => p.categoryLabelFa)
+                          getSmartAdditivePresets(effectiveRoadmapPlan, quickTank).map((p) => p.categoryLabelFa)
                         )
                       ).map((catLabel) => (
                         <optgroup key={catLabel} label={catLabel}>
-                          {getSmartAdditivePresets(flexPlan, quickTank)
+                          {getSmartAdditivePresets(effectiveRoadmapPlan, quickTank)
                             .filter((p) => p.categoryLabelFa === catLabel)
                             .map((preset) => (
                               <option key={preset.id} value={preset.id}>
@@ -1963,11 +2137,11 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
                         }}
                         className="w-full bg-white border border-stone-300 rounded-lg p-1.5 font-bold"
                       >
-                        <option value="tank-a">مخزن A (قرمز {flexPlan.volumes.redLiquidFermentPerTankL}L)</option>
+                        <option value="tank-a">مخزن A (قرمز {effectiveRoadmapPlan.volumes.redLiquidFermentPerTankL}L)</option>
                         {tankCount !== 1 && (
-                          <option value="tank-b">مخزن B (قرمز {flexPlan.volumes.redLiquidFermentPerTankL}L)</option>
+                          <option value="tank-b">مخزن B (قرمز {effectiveRoadmapPlan.volumes.redLiquidFermentPerTankL}L)</option>
                         )}
-                        <option value="tank-rose">گالن رُزه ({flexPlan.volumes.roseClarifiedFermentL}L)</option>
+                        <option value="tank-rose">گالن رُزه ({effectiveRoadmapPlan.volumes.roseClarifiedFermentL}L)</option>
                       </select>
                     </div>
 
@@ -2067,7 +2241,7 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
             const isCompleted = completedSteps.includes(step.id);
             const isActive = step.id === currentStepId;
             const stepTools = getStepLabTools(step.id);
-            const stepDynSummary = getDynamicStepDoseSummary(step.id, flexPlan);
+            const stepDynSummary = getDynamicStepDoseSummary(step.id, effectiveRoadmapPlan);
             const stepEquipGuide = getRoadmapStepEquipmentGuide(
               stepNum,
               equipmentProfile
@@ -2134,7 +2308,7 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
                     </p>
                     {stepDynSummary && (
                       <div className="text-xs font-bold text-emerald-900 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg inline-block mt-1">
-                        مقدار پویا ({flexParams.grapeWeightKg}kg): {stepDynSummary}
+                        مقدار پویا ({effectiveRoadmapPlan.params.grapeWeightKg}kg): {stepDynSummary}
                       </div>
                     )}
                     {stepEquipGuide && (

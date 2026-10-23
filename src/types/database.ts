@@ -79,7 +79,7 @@ export interface LabAnalysisRecord {
   batchId: string;
   tankId: TankId;
   date: string;
-  testType: 'ripper_so2' | 'ta_titration' | 'ph_meter' | 'mlf_chromatography' | 'refractometer_correction' | 'sensory_eval';
+  testType: 'ripper_so2' | 'ta_titration' | 'ph_meter' | 'mlf_chromatography' | 'refractometer_correction' | 'hydrometer_temp' | 'sensory_eval';
   targetAnalyte: string; // e.g. "Free SO2", "Tartaric Acid", "Malic / Lactic Acid"
   pubchemCid?: number;
   measuredValue: number | string;
@@ -196,6 +196,7 @@ export interface CellarEquipmentProfile {
   taInstrument: TaInstrumentType;
   so2Instrument: So2InstrumentType;
   hasPrecisionScale001g: boolean;
+  scalePrecisionGrams?: 0.01 | 0.1 | 1;
   hasPaperChromatographyMLF: boolean;
   redTankConfig: RedTankConfigType;
   primaryTankCount: 1 | 2;
@@ -252,6 +253,7 @@ export const CellarEquipmentProfileSchema = z.object({
   taInstrument: z.enum(['naoh_burette', 'colorimetric_kit', 'none']),
   so2Instrument: z.enum(['ripper_iodine', 'aeration_oxidation', 'none']),
   hasPrecisionScale001g: z.boolean(),
+  scalePrecisionGrams: z.union([z.literal(0.01), z.literal(0.1), z.literal(1)]).optional(),
   hasPaperChromatographyMLF: z.boolean(),
   redTankConfig: z.enum(['dual_220l_split', 'single_primary', 'small_30_60l_barrels']),
   primaryTankCount: z.union([z.literal(1), z.literal(2)]),
@@ -375,6 +377,7 @@ export const LabAnalysisRecordSchema = z.object({
     'ph_meter',
     'mlf_chromatography',
     'refractometer_correction',
+    'hydrometer_temp',
     'sensory_eval'
   ]),
   targetAnalyte: z.string(),

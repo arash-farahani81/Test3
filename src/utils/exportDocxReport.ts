@@ -15,7 +15,10 @@ import fileSaver from 'file-saver';
 const saveAs = fileSaver.saveAs || fileSaver;
 import type { FermentationLogEntry, TankId } from '../types/tracking.ts';
 import type { ChemicalAddition, LabAnalysisRecord } from '../types/database.ts';
-import { compareRealLogsWithBenchmark } from './trackingCalculations.ts';
+import {
+  compareRealLogsWithBenchmark,
+  sortFermentationLogs
+} from './trackingCalculations.ts';
 import { getCurrentDynamicProtocolPlan, type DynamicProtocolPlan } from '../data/masterProtocolConfig.ts';
 import { enologyDb } from '../db/enologyDatabase.ts';
 
@@ -56,9 +59,9 @@ export async function exportDocxReport(options: DocxReportOptions): Promise<void
       ? `مخزن قرمز B (بچ دوم ${v.redLiquidFermentPerTankL} لیتر مایع / ${v.redMashAfterSaigneePerTankL} لیتر مش)`
       : `مخزن شراب رُزه (${v.roseClarifiedFermentL} لیتر شیره شفاف)`;
 
-  const tankLogs = logs
-    .filter((l) => l.tankId === tankId)
-    .sort((a, b) => a.dayNumber - b.dayNumber || a.id.localeCompare(b.id));
+  const tankLogs = sortFermentationLogs(
+    logs.filter((l) => !l.isDeleted && l.tankId === tankId)
+  );
 
   const benchmarkLogs = tankLogs.filter((l) => l.isBenchmark === true);
   const realLogs = tankLogs.filter((l) => l.isBenchmark !== true);
@@ -387,8 +390,9 @@ export async function exportDocxReport(options: DocxReportOptions): Promise<void
 
   const tankAdditions = additions.filter(
     (a) =>
-      a.tankId === tankId ||
-      ((!a.tankId || (a.tankId as string) === 'both-red') && tankId !== 'tank-rose')
+      !a.isDeleted &&
+      (a.tankId === tankId ||
+        ((!a.tankId || (a.tankId as string) === 'both-red') && tankId !== 'tank-rose'))
   );
 
   const additionRows: TableRow[] = [
@@ -440,8 +444,9 @@ export async function exportDocxReport(options: DocxReportOptions): Promise<void
   // 5B. Lab Analyses Section
   const tankAnalyses = analyses.filter(
     (a) =>
-      a.tankId === tankId ||
-      ((!a.tankId || (a.tankId as string) === 'both-red') && tankId !== 'tank-rose')
+      !a.isDeleted &&
+      (a.tankId === tankId ||
+        ((!a.tankId || (a.tankId as string) === 'both-red') && tankId !== 'tank-rose'))
   );
   const labHeader = new Paragraph({
     heading: HeadingLevel.HEADING_2,

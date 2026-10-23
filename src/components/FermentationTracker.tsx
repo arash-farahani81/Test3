@@ -113,11 +113,41 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
     openYeastSelectorModal
   } = ui;
   const { params: flexParams, plan: flexPlan, isModifiedFromIdeal } = useFlexibleProtocol();
-  const batchPlan = useMemo(
-    () => getEffectiveProtocolPlanForBatch(activeBatch, flexPlan),
-    [activeBatch, flexPlan]
-  );
+  void flexParams;
+  const redTankMultiplier = tankCount === 1 ? 2 : 1;
+  const batchPlan = useMemo(() => {
+    const rawPlan = getEffectiveProtocolPlanForBatch(activeBatch, flexPlan);
+    if (redTankMultiplier === 1) return rawPlan;
+    const r2 = (v: number) => Math.round(v * redTankMultiplier * 100) / 100;
+    return {
+      ...rawPlan,
+      volumes: {
+        ...rawPlan.volumes,
+        crushedMashPerTankL: r2(rawPlan.volumes.crushedMashPerTankL),
+        initialLiquidPerTankL: r2(rawPlan.volumes.initialLiquidPerTankL),
+        saigneePerTankL: r2(rawPlan.volumes.saigneePerTankL),
+        redMashAfterSaigneePerTankL: r2(rawPlan.volumes.redMashAfterSaigneePerTankL),
+        redLiquidFermentPerTankL: r2(rawPlan.volumes.redLiquidFermentPerTankL),
+        freeRunPerTankL: r2(rawPlan.volumes.freeRunPerTankL),
+        heavyPressPerTankL: r2(rawPlan.volumes.heavyPressPerTankL),
+        rack1PerTankL: r2(rawPlan.volumes.rack1PerTankL),
+        rack2PerTankL: r2(rawPlan.volumes.rack2PerTankL),
+        finalRedPerTankL: r2(rawPlan.volumes.finalRedPerTankL)
+      },
+      dosages: Object.fromEntries(
+        Object.entries(rawPlan.dosages).map(([k, val]) => [
+          k,
+          k.includes('PerTank') ? r2(val as number) : val
+        ])
+      ) as typeof rawPlan.dosages
+    };
+  }, [activeBatch, flexPlan, redTankMultiplier]);
   const [showFlexibleCustomizer, setShowFlexibleCustomizer] = useState<boolean>(false);
+
+  const showRoseTankOption =
+    (equipmentProfile.producesRoseSaignee !== false &&
+      (equipmentProfile as { produceRoseSaignee?: boolean }).produceRoseSaignee !== false) ||
+    activeBatch?.targetStyle === 'rose';
 
   const [tankId, setTankId] = useLocalStorageState<TankId>('enology_tracking_selected_tank', effectiveSingleTankId || 'tank-a');
   const currentTankYeast = useMemo(
@@ -132,13 +162,16 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
       : batchPlan.volumes.redLiquidFermentPerTankL;
 
   useEffect(() => {
-    if (effectiveSingleTankId && effectiveSingleTankId !== tankId) {
+    if (!showRoseTankOption && tankId === 'tank-rose') {
+      setTankId('tank-a');
+      setGlobalTankSelection('tank-a');
+    } else if (effectiveSingleTankId && effectiveSingleTankId !== tankId) {
       setTankId(effectiveSingleTankId);
     } else if (tankCount === 1 && tankId === 'tank-b') {
       setTankId('tank-a');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveSingleTankId, tankCount]);
+  }, [effectiveSingleTankId, tankCount, showRoseTankOption]);
 
   const [logs, setLogs] = useState<FermentationLogEntry[]>(() =>
     enologyDb.getLogs(undefined, false, activeBatch?.id)
@@ -339,13 +372,13 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
     : labAnalyses;
 
   // Reference targets & Dynamic SG0 Triggers
-  const targetInitialSG = initialLog ? initialLog.sg : (flexParams.initialSG || 1.092);
+  const targetInitialSG = initialLog ? initialLog.sg : (batchPlan.params.initialSG || 1.092);
   const dynamicTriggers = calculateDynamicSGTriggers(targetInitialSG, {
-    pressingPoint: flexPlan.triggers.pressingSG,
-    drynessPoint: flexPlan.triggers.drynessSG
+    pressingPoint: batchPlan.triggers.pressingSG,
+    drynessPoint: batchPlan.triggers.drynessSG
   });
-  const targetFinalSG = tankId === 'tank-rose' ? 0.991 : flexPlan.triggers.drynessSG;
-  const targetOptimalPH = tankId === 'tank-rose' ? flexParams.targetRosePH : flexParams.targetRedPH;
+  const targetFinalSG = tankId === 'tank-rose' ? 0.991 : batchPlan.triggers.drynessSG;
+  const targetOptimalPH = tankId === 'tank-rose' ? batchPlan.params.targetRosePH : batchPlan.params.targetRedPH;
 
   const currentProgress = latestLog
     ? calculateFermentationProgress(latestLog.sg, targetInitialSG, targetFinalSG)
@@ -361,8 +394,8 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
   // Smart Trigger Detector for Add Daily Log Modal (Dynamic based on SG0 and FlexibleProtocolPlan)
   const detectTriggerWindow = (sgVal: number, currentTank: TankId): DetectedTriggerInfo | null => {
     const isRose = currentTank === 'tank-rose';
-    const d = flexPlan.dosages;
-    const v = flexPlan.volumes;
+    const d = batchPlan.dosages;
+    const v = batchPlan.volumes;
 
     if (sgVal >= dynamicTriggers.sna1 - 0.003 && sgVal <= dynamicTriggers.sna1 + 0.003) {
       return {
@@ -664,7 +697,7 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
   const applyDailyStagePreset = (presetId: string) => {
     setSelectedDailyPresetId(presetId);
     if (!presetId) return;
-    const presets = getSmartDailyStagePresets(flexPlan, tankId);
+    const presets = getSmartDailyStagePresets(batchPlan, tankId);
     const found = presets.find((p) => p.id === presetId);
     if (found) {
       setFormDay(found.dayNumber);
@@ -687,7 +720,7 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
   const applyLabPreset = (presetId: string, targetTank: TankId) => {
     setSelectedLabPresetId(presetId);
     if (!presetId) return;
-    const presets = getSmartLabPresets(flexPlan, targetTank);
+    const presets = getSmartLabPresets(batchPlan, targetTank);
     const found = presets.find((p) => p.id === presetId);
     if (found) {
       setLabTestType(found.testType);
@@ -1071,10 +1104,10 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
 
   const tankLabel =
     tankId === 'tank-a'
-      ? `مخزن قرمز A (${flexPlan.volumes.redLiquidFermentPerTankL}L)`
+      ? `مخزن قرمز A (${batchPlan.volumes.redLiquidFermentPerTankL}L)`
       : tankId === 'tank-b'
-      ? `مخزن قرمز B (${flexPlan.volumes.redLiquidFermentPerTankL}L)`
-      : `مخزن رُزه (${flexPlan.volumes.roseClarifiedFermentL}L)`;
+      ? `مخزن قرمز B (${batchPlan.volumes.redLiquidFermentPerTankL}L)`
+      : `مخزن رُزه (${batchPlan.volumes.roseClarifiedFermentL}L)`;
 
   return (
     <div className="space-y-6 font-['Vazirmatn',sans-serif]">
@@ -1226,7 +1259,7 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
                   : 'bg-paper text-ink hover:bg-surface border border-line'
               }`}
             >
-              <span>مخزن قرمز A (بچ اول {flexPlan.volumes.redLiquidFermentPerTankL}L)</span>
+              <span>مخزن قرمز A (بچ اول {batchPlan.volumes.redLiquidFermentPerTankL}L)</span>
               <span className="text-xs bg-black/10 px-1.5 py-0.5 rounded font-mono tabular-nums">
                 {logs.filter((l) => l.tankId === 'tank-a').length}
               </span>
@@ -1245,30 +1278,32 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
                     : 'bg-paper text-ink hover:bg-surface border border-line'
                 }`}
               >
-                <span>مخزن قرمز B (بچ دوم {flexPlan.volumes.redLiquidFermentPerTankL}L)</span>
+                <span>مخزن قرمز B (بچ دوم {batchPlan.volumes.redLiquidFermentPerTankL}L)</span>
                 <span className="text-xs bg-black/10 px-1.5 py-0.5 rounded font-mono tabular-nums">
                   {logs.filter((l) => l.tankId === 'tank-b').length}
                 </span>
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => {
-                setTankId('tank-rose');
-                setGlobalTankSelection('tank-rose');
-                setSelectedLogId(null);
-              }}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
-                tankId === 'tank-rose'
-                  ? 'bg-wine text-white shadow-xs'
-                  : 'bg-paper text-ink hover:bg-surface border border-line'
-              }`}
-            >
-              <span>مخزن شراب رُزه ({flexPlan.volumes.roseClarifiedFermentL}L)</span>
-              <span className="text-xs bg-black/10 px-1.5 py-0.5 rounded font-mono tabular-nums">
-                {logs.filter((l) => l.tankId === 'tank-rose').length}
-              </span>
-            </button>
+            {showRoseTankOption && (
+              <button
+                type="button"
+                onClick={() => {
+                  setTankId('tank-rose');
+                  setGlobalTankSelection('tank-rose');
+                  setSelectedLogId(null);
+                }}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                  tankId === 'tank-rose'
+                    ? 'bg-wine text-white shadow-xs'
+                    : 'bg-paper text-ink hover:bg-surface border border-line'
+                }`}
+              >
+                <span>مخزن شراب رُزه ({batchPlan.volumes.roseClarifiedFermentL}L)</span>
+                <span className="text-xs bg-black/10 px-1.5 py-0.5 rounded font-mono tabular-nums">
+                  {logs.filter((l) => l.tankId === 'tank-rose').length}
+                </span>
+              </button>
+            )}
           </div>
 
           {/* Display Mode Filters */}
@@ -1406,7 +1441,7 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
 
       {/* Zone A: Live Cumulative OIV SO2 Ledger Strip */}
       {(() => {
-        const so2RefVolL = tankId === 'tank-rose' ? flexPlan.volumes.roseClarifiedFermentL : flexPlan.volumes.redLiquidFermentPerTankL;
+        const so2RefVolL = tankId === 'tank-rose' ? batchPlan.volumes.roseClarifiedFermentL : batchPlan.volumes.redLiquidFermentPerTankL;
         const so2Ledger = enologyDb.getCumulativeSO2Ledger(
           tankId,
           so2RefVolL,
@@ -1551,14 +1586,14 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
 
       {(() => {
         const activeLog = selectedLog || latestLog;
-        const analysis = activeLog ? analyzeLogEntryHealth(activeLog, tankId, additions, flexPlan, currentTankYeast.id) : null;
+        const analysis = activeLog ? analyzeLogEntryHealth(activeLog, tankId, additions, batchPlan, currentTankYeast.id) : null;
         void getTargetFreeSO2ByPH;
         const scenarioEval = activeLog ? evaluateEnologicalScenario({
-          batchVolumeL: (tankId === 'tank-rose' ? flexPlan.volumes.roseClarifiedFermentL : flexPlan.volumes.redLiquidFermentPerTankL),
+          batchVolumeL: (tankId === 'tank-rose' ? batchPlan.volumes.roseClarifiedFermentL : batchPlan.volumes.redLiquidFermentPerTankL),
           currentSG: activeLog.sg,
           currentBrix: activeLog.brix,
           tempCapC: activeLog.tempCap,
-          ph: activeLog.phMeasured === false ? (tankId === 'tank-rose' ? flexPlan.params.targetRosePH : flexPlan.params.targetRedPH) : activeLog.ph,
+          ph: activeLog.phMeasured === false ? (tankId === 'tank-rose' ? batchPlan.params.targetRosePH : batchPlan.params.targetRedPH) : activeLog.ph,
           ta: activeLog.taMeasured === false ? (tankId === 'tank-rose' ? 6.8 : 6.5) : (activeLog.ta || 6.8),
           freeSO2: activeLog.freeSO2 !== undefined && activeLog.freeSO2Measured !== false ? activeLog.freeSO2 : 0,
           dayNumber: activeLog.dayNumber,
@@ -2902,8 +2937,8 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
             {(() => {
               const so2VolL =
                 tankId === 'tank-rose'
-                  ? flexPlan.volumes.rosePostRackingL
-                  : flexPlan.volumes.rack1PerTankL;
+                  ? batchPlan.volumes.rosePostRackingL
+                  : batchPlan.volumes.rack1PerTankL;
               const so2Ledger = enologyDb.getCumulativeSO2Ledger(
                 tankId,
                 so2VolL,
@@ -3331,7 +3366,7 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
                   className="w-full p-2 rounded-lg border border-rose-300 bg-white font-bold text-stone-900 text-xs focus:ring-2 focus:ring-rose-800 outline-none"
                 >
                   <option value="">— ورود دستی یا انتخاب سریع ایستگاه/تریگر استاندارد —</option>
-                  {getSmartDailyStagePresets(flexPlan, tankId).map((preset) => (
+                  {getSmartDailyStagePresets(batchPlan, tankId).map((preset) => (
                     <option key={preset.id} value={preset.id}>
                       {preset.labelFa}
                     </option>
@@ -3591,11 +3626,11 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
                   <option value="">— ورود دستی / افزودنی سفارشی —</option>
                   {Array.from(
                     new Set(
-                      getSmartAdditivePresets(flexPlan, chemTankId).map((p) => p.categoryLabelFa)
+                      getSmartAdditivePresets(batchPlan, chemTankId).map((p) => p.categoryLabelFa)
                     )
                   ).map((catLabel) => (
                     <optgroup key={catLabel} label={catLabel}>
-                      {getSmartAdditivePresets(flexPlan, chemTankId)
+                      {getSmartAdditivePresets(batchPlan, chemTankId)
                         .filter((p) => p.categoryLabelFa === catLabel)
                         .map((preset) => (
                           <option key={preset.id} value={preset.id}>
@@ -3606,7 +3641,7 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
                   ))}
                 </select>
                 <p className="text-xs text-amber-900">
-                  با انتخاب هر ترکیب، نام علمی، ایستگاه تزریق، مقدار دقیق متناسب با مخزن ({chemTankId === 'tank-rose' ? `${flexPlan.volumes.roseClarifiedFermentL}L رُزه` : `${flexPlan.volumes.redLiquidFermentPerTankL}L قرمز`}) و هدف بیوشیمیایی به صورت خودکار پر می‌شود.
+                  با انتخاب هر ترکیب، نام علمی، ایستگاه تزریق، مقدار دقیق متناسب با مخزن ({chemTankId === 'tank-rose' ? `${batchPlan.volumes.roseClarifiedFermentL}L رُزه` : `${batchPlan.volumes.redLiquidFermentPerTankL}L قرمز`}) و هدف بیوشیمیایی به صورت خودکار پر می‌شود.
                 </p>
               </div>
 
@@ -3624,11 +3659,13 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
                     }}
                     className="w-full p-2 rounded-lg border border-stone-300 bg-white font-bold"
                   >
-                    <option value="tank-a">مخزن قرمز A ({flexPlan.volumes.redLiquidFermentPerTankL}L)</option>
+                    <option value="tank-a">مخزن قرمز A ({batchPlan.volumes.redLiquidFermentPerTankL}L)</option>
                     {tankCount !== 1 && (
-                      <option value="tank-b">مخزن قرمز B ({flexPlan.volumes.redLiquidFermentPerTankL}L)</option>
+                      <option value="tank-b">مخزن قرمز B ({batchPlan.volumes.redLiquidFermentPerTankL}L)</option>
                     )}
-                    <option value="tank-rose">مخزن شراب رُزه ({flexPlan.volumes.roseClarifiedFermentL}L)</option>
+                    {showRoseTankOption && (
+                      <option value="tank-rose">مخزن شراب رُزه ({batchPlan.volumes.roseClarifiedFermentL}L)</option>
+                    )}
                   </select>
                 </div>
                 <div>
@@ -3894,7 +3931,7 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
                   className="w-full p-2 rounded-lg border border-emerald-400 bg-white font-bold text-stone-900 text-xs focus:ring-2 focus:ring-emerald-700 outline-none"
                 >
                   <option value="">— ورود دستی مشخصات آزمون —</option>
-                  {getSmartLabPresets(flexPlan, labTankId).map((preset) => (
+                  {getSmartLabPresets(batchPlan, labTankId).map((preset) => (
                     <option key={preset.id} value={preset.id}>
                       {preset.labelFa}
                     </option>
@@ -3916,11 +3953,13 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
                     }}
                     className="w-full p-2 rounded-lg border border-stone-300 bg-white font-bold"
                   >
-                    <option value="tank-a">مخزن قرمز A ({flexPlan.volumes.redLiquidFermentPerTankL}L)</option>
+                    <option value="tank-a">مخزن قرمز A ({batchPlan.volumes.redLiquidFermentPerTankL}L)</option>
                     {tankCount !== 1 && (
-                      <option value="tank-b">مخزن قرمز B ({flexPlan.volumes.redLiquidFermentPerTankL}L)</option>
+                      <option value="tank-b">مخزن قرمز B ({batchPlan.volumes.redLiquidFermentPerTankL}L)</option>
                     )}
-                    <option value="tank-rose">مخزن شراب رُزه ({flexPlan.volumes.roseClarifiedFermentL}L)</option>
+                    {showRoseTankOption && (
+                      <option value="tank-rose">مخزن شراب رُزه ({batchPlan.volumes.roseClarifiedFermentL}L)</option>
+                    )}
                   </select>
                 </div>
                 <div>

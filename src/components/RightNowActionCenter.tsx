@@ -41,7 +41,6 @@ import {
   useEnologyUi,
   type GlobalTankSelection
 } from '../context/EnologyUiContext.tsx';
-import { BatchOnboardingWizardModal } from './BatchOnboardingWizardModal.tsx';
 import { LivingTankVisualTwin } from './LivingTankVisualTwin.tsx';
 import { EngravedWaxSealStamp } from './PhotoDiaryAndVintagePanel.tsx';
 
@@ -107,6 +106,7 @@ export const RightNowActionCenter: React.FC<RightNowActionCenterProps> = ({
     setScalePrecision,
     navigateToLabTest,
     openQuickLog,
+    openOnboardingWizard,
     dataVersion,
     notifyDataChanged,
     equipmentProfile,
@@ -163,7 +163,6 @@ export const RightNowActionCenter: React.FC<RightNowActionCenterProps> = ({
   >(null);
   const [riskOverrideReason, setRiskOverrideReason] = useState('');
   const [bottlingUnlockedNotice, setBottlingUnlockedNotice] = useState(false);
-  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [confirmingRealBatchReset, setConfirmingRealBatchReset] = useState(false);
 
   // Sync externalTankId prop if provided
@@ -546,7 +545,7 @@ export const RightNowActionCenter: React.FC<RightNowActionCenterProps> = ({
           <div className="flex items-center gap-2 flex-wrap shrink-0">
             <button
               type="button"
-              onClick={() => setIsOnboardingOpen(true)}
+              onClick={() => openOnboardingWizard()}
               className="px-3.5 py-2 rounded-lg bg-wine text-white text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
             >
               <Sparkles className="w-3.5 h-3.5" />
@@ -1882,18 +1881,6 @@ export const RightNowActionCenter: React.FC<RightNowActionCenterProps> = ({
         <Plus className="w-5 h-5" />
         <span>ثبت اندازه‌گیری</span>
       </button>
-
-      {/* 12. 5-Step Batch Onboarding Wizard Modal */}
-      <BatchOnboardingWizardModal
-        isOpen={isOnboardingOpen}
-        onClose={() => setIsOnboardingOpen(false)}
-        onBatchCreated={() => {
-          setCompletedSteps([]);
-          setRefreshTick((t) => t + 1);
-          notifyDataChanged();
-          onDataChanged?.();
-        }}
-      />
     </section>
   );
 };

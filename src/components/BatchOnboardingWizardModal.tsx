@@ -179,10 +179,9 @@ export const BatchOnboardingWizardModal: React.FC<
         ...params,
         grapeWeightKg: Math.max(20, grapeWeightKg),
         initialBrix,
-        initialSG,
-        targetRedPH: parsedInitialPH !== null ? parsedInitialPH : 3.52
+        initialSG
       }),
-    [params, grapeWeightKg, initialBrix, initialSG, parsedInitialPH]
+    [params, grapeWeightKg, initialBrix, initialSG]
   );
 
   const handleCompleteOnboarding = () => {
@@ -195,14 +194,12 @@ export const BatchOnboardingWizardModal: React.FC<
       ...params,
       grapeWeightKg: validWeight,
       initialBrix,
-      initialSG,
-      targetRedPH: effectivePH
+      initialSG
     };
 
     updateParam('grapeWeightKg', validWeight);
     updateParam('initialBrix', initialBrix);
     updateParam('initialSG', initialSG);
-    updateParam('targetRedPH', effectivePH);
 
     const tankAdjustFactor = 2 / tankCount;
     const redLiquidL =

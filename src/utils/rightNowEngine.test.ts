@@ -8,7 +8,8 @@ import {
 import { INITIAL_TRACKING_DATA } from '../data/seedTrackingData.ts';
 import {
   computeDynamicProtocolPlan,
-  IDEAL_DEFAULT_PROTOCOL_PARAMS
+  IDEAL_DEFAULT_PROTOCOL_PARAMS,
+  CLASSIC_V32_PROTOCOL_PARAMS
 } from '../data/masterProtocolConfig.ts';
 import type {
   ChemicalAddition,
@@ -385,12 +386,12 @@ test('Part 4 Audit Remediation: No Demo Leakage in Bottling Gate, Deterministic 
   const khtAdd100 = coldStab_100.tankRows[0].additionsToRecord.find((a) => a.compoundType === 'kht');
   const preBottleKms100 = bottling_100.tankRows[0].additionsToRecord.find((a) => a.compoundType === 'kms');
   assert.ok(dapAdd100 && khtAdd100 && preBottleKms100);
-  assert.equal(dapAdd100.amount, plan100.dosages.dap2RedPerTankG);
-  assert.ok(dapAdd100.amount < 10, '100kg DAP dose must scale down to ~4.95g, not fallback 19.8g');
-  assert.equal(khtAdd100.amount, plan100.dosages.khtColdStabRedPerTankG);
-  assert.ok(khtAdd100.amount < 10, '100kg KHT dose must scale down to ~4.65g, not fallback 18.6g');
-  assert.equal(preBottleKms100.amount, plan100.dosages.preBottlingKmsPerTankG);
-  assert.ok(preBottleKms100.amount < 1.5, '100kg pre-bottling KMS must scale down, not fallback 2.45g');
+  assert.equal(dapAdd100.amount, plan100.dosages.dap2RedPerTankG * 2);
+  assert.ok(dapAdd100.amount <= 10, '100kg single-tank DAP dose must be 9.9g (full 100kg red batch), not 400kg fallback');
+  assert.equal(khtAdd100.amount, plan100.dosages.khtColdStabRedPerTankG * 2);
+  assert.ok(khtAdd100.amount <= 10, '100kg single-tank KHT dose must be 9.3g (full 100kg red batch), not 400kg fallback');
+  assert.equal(preBottleKms100.amount, plan100.dosages.preBottlingKmsPerTankG * 2);
+  assert.ok(preBottleKms100.amount < 1.5, '100kg single-tank pre-bottling KMS must scale down, not fallback 2.45g');
   assert.equal(dapAdd100.milestoneId, 'sna-2-dap');
   assert.equal(dapAdd100.batchId, 'batch-100kg');
 
@@ -901,8 +902,8 @@ test('Deep Audit Section 4 Scenarios: 1.1 RS Failure, 1.2 Exact Upper SO2 Ceilin
   assert.ok(crushMilestone);
   assert.equal(
     crushMilestone.tankRows[0].additionsToRecord[0].amount,
-    1.63,
-    'Batch with 100kg protocolParamsSnapshot must compute 1.63g crush KMS even without explicit plan prop'
+    3.26,
+    'Single-tank batch with 100kg protocolParamsSnapshot must compute 3.26g crush KMS (full 75L single tank) even without explicit plan prop'
   );
 
   // 5. Item 1.8: Cross-batch & orphan isolation (including tank-rose)
@@ -1433,5 +1434,77 @@ test('Step 5 Equipment Adaptation: evaluateBottlingReadinessGate verifies free_s
   const coldStabCheck = gate.advisoryItems.find((i) => i.id === 'cold_stabilization');
   assert.equal(coldStabCheck?.status, 'passed', 'cold_stabilization must auto-pass when coldStabMethod is skip_cold_stab');
 });
+
+test('Critical Bugfix Audit Part 1: single-tank (tankCount === 1) full red batch volume/dose scaling, CLASSIC_V32 freeRunPerTankL (110 L), and 576 KMS stoichiometry notes', () => {
+  // 1. Single-tank mode (tankCount === 1 on a 400kg batch) must allocate 100% of red volume and 100% of red dosage to tank-a
+  const day0Logs: FermentationLogEntry[] = [
+    {
+      id: 'st-0',
+      batchId: 'batch-single-400',
+      tankId: 'tank-a',
+      dayNumber: 0,
+      dateTime: '۱۴۰۵/۰۷/۲۴ - ۰۸:۰۰',
+      timestampMs: 1000,
+      stageTitle: 'روز ۰',
+      brix: 22.0,
+      sg: 1.092,
+      tempCap: 21.0,
+      tempRoom: 20.0,
+      ph: 3.52,
+      pigeageDone: false,
+      isBenchmark: false,
+      isDemo: false
+    }
+  ];
+
+  const singleTankQueue = evaluateRightNowQueue({
+    logs: day0Logs,
+    additions: [],
+    activeTankId: 'tank-a',
+    batchId: 'batch-single-400',
+    excludeDemo: true,
+    batch: {
+      id: 'batch-single-400',
+      name: 'بچ تک مخزن ۴۰۰ کیلو',
+      grapeVariety: 'رشه سردشت',
+      vintageYear: 1405,
+      initialWeightKg: 400,
+      targetStyle: 'red',
+      status: 'active_fermentation',
+      startDate: '۱۴۰۵/۰۷/۲۴',
+      tankCount: 1,
+      isDemo: false
+    }
+  });
+
+  const crushMilestone = singleTankQueue.allMilestones.find((m) => m.id === 'crush-kms');
+  assert.ok(crushMilestone);
+  assert.equal(crushMilestone.tankRows.length, 1);
+  assert.equal(crushMilestone.tankRows[0].tankId, 'tank-a');
+  assert.equal(crushMilestone.tankRows[0].doseValue, '13.04');
+  assert.equal(crushMilestone.tankRows[0].additionsToRecord[0].amount, 13.04);
+  assert.equal(crushMilestone.tankRows[0].additionsToRecord[0].referenceVolumeL, 300);
+  assert.ok(crushMilestone.scienceNoteFa.includes('÷ 576'));
+
+  const sna1Milestone = singleTankQueue.allMilestones.find((m) => m.id === 'sna-1');
+  assert.ok(sna1Milestone);
+  assert.equal(sna1Milestone.tankRows.length, 1);
+  assert.equal(sna1Milestone.tankRows[0].doseValue, '66');
+  assert.equal(sna1Milestone.tankRows[0].additionsToRecord[0].amount, 66);
+  assert.equal(sna1Milestone.tankRows[0].additionsToRecord[0].referenceVolumeL, 264);
+
+  // 2. Pressing milestone under CLASSIC_V32_PROTOCOL_PARAMS uses exact plan.volumes.freeRunPerTankL (110 L) instead of 109 L
+  const classicPlan = computeDynamicProtocolPlan(CLASSIC_V32_PROTOCOL_PARAMS);
+  const classicQueue = evaluateRightNowQueue({
+    logs: day0Logs,
+    additions: [],
+    activeTankId: 'tank-a',
+    plan: classicPlan
+  });
+  const pressingMilestone = classicQueue.allMilestones.find((m) => m.id === 'pressing');
+  assert.ok(pressingMilestone);
+  assert.equal(pressingMilestone.tankRows[0].doseValue, '110');
+});
+
 
 

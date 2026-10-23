@@ -183,7 +183,7 @@ export function computeSo2TrajectoryVector(params: {
 export const BandedFermentationChartAndSO2Panel: React.FC<
   BandedFermentationChartAndSO2PanelProps
 > = ({ tankId, logs, additions, labAnalyses, onSelectMilestone }) => {
-  const { activeBatch, equipmentProfile, equipmentCapabilities } = useEnologyUi();
+  const { activeBatch, equipmentProfile, equipmentCapabilities, tankCount } = useEnologyUi();
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(
     null
   );
@@ -328,23 +328,32 @@ export const BandedFermentationChartAndSO2Panel: React.FC<
     [activeBatch]
   );
 
+  const redTankMultiplier = !isRose && tankCount === 1 ? 2 : 1;
   const referenceVolL = useMemo(() => {
     if (isRose) {
       return (latestLog?.sg ?? 1.092) <= 0.995
         ? batchPlan.volumes.rosePostRackingL
         : batchPlan.volumes.roseClarifiedFermentL;
     }
+    const r2 = (v: number) => Math.round(v * redTankMultiplier * 100) / 100;
     const day = latestLog?.dayNumber ?? 0;
     const sg = latestLog?.sg ?? 1.092;
-    if (day >= 80) return batchPlan.volumes.finalRedPerTankL;
-    if (day >= 10) return batchPlan.volumes.rack1PerTankL;
-    if (sg <= 1.005) return batchPlan.volumes.freeRunPerTankL;
+    if (day >= 80) return r2(batchPlan.volumes.finalRedPerTankL);
+    if (day >= 10) return r2(batchPlan.volumes.rack1PerTankL);
+    if (sg <= 1.005) return r2(batchPlan.volumes.freeRunPerTankL);
     return getEffectiveLiquidVolume(
-      batchPlan.volumes.crushedMashPerTankL,
+      r2(batchPlan.volumes.crushedMashPerTankL),
       true,
-      batchPlan.volumes.saigneePerTankL
+      batchPlan.params.redMashLiquidYieldFactor
     );
-  }, [isRose, latestLog?.dayNumber, latestLog?.sg, batchPlan.volumes]);
+  }, [
+    isRose,
+    latestLog?.dayNumber,
+    latestLog?.sg,
+    batchPlan.volumes,
+    batchPlan.params.redMashLiquidYieldFactor,
+    redTankMultiplier
+  ]);
 
   const so2Trajectory = useMemo(
     () =>

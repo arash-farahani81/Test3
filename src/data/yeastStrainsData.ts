@@ -1,3 +1,5 @@
+import { IDEAL_DEFAULT_PROTOCOL_PARAMS } from './masterProtocolConfig.ts';
+
 export type YeastBrand =
   | 'Lallemand'
   | 'Laffort'
@@ -1459,12 +1461,26 @@ export function computeYeastAdjustedSnaPlan(params: {
   const yeastGrams = round2(strain.recommendedDoseGL * safeVolumeL);
   const goFermGrams = round2(yeastGrams * 1.2);
 
-  // Baseline 400kg Rasha Sardasht SNA rates scaled by volumeL and yanScale
-  const fermaidO_1 = round2(0.15 * safeVolumeL * yanScale);
-  const fermaidK_2 = round2(0.2 * safeVolumeL * yanScale);
-  const dap_2 = round2(0.18 * safeVolumeL * yanScale);
-  const zinc_2 = round2(0.015 * safeVolumeL * Math.min(1.25, Math.max(0.5, yanScale)));
-  const fermaidO_3 = round2(0.15 * safeVolumeL * yanScale);
+  // Baseline 400kg Rasha Sardasht SNA rates from IDEAL_DEFAULT_PROTOCOL_PARAMS scaled by volumeL and yanScale
+  const o1Rate = params.isRose
+    ? IDEAL_DEFAULT_PROTOCOL_PARAMS.fermaidO1RoseRateGL
+    : IDEAL_DEFAULT_PROTOCOL_PARAMS.fermaidO1RedRateGL;
+  const k2Rate = params.isRose
+    ? IDEAL_DEFAULT_PROTOCOL_PARAMS.fermaidK2RoseRateGL
+    : IDEAL_DEFAULT_PROTOCOL_PARAMS.fermaidK2RedRateGL;
+  const dap2Rate = params.isRose
+    ? IDEAL_DEFAULT_PROTOCOL_PARAMS.dap2RoseRateGL
+    : IDEAL_DEFAULT_PROTOCOL_PARAMS.dap2RedRateGL;
+  const zincRate = IDEAL_DEFAULT_PROTOCOL_PARAMS.zincSafeRateGL;
+  const o3Rate = params.isRose
+    ? IDEAL_DEFAULT_PROTOCOL_PARAMS.fermaidO3RoseRateGL
+    : IDEAL_DEFAULT_PROTOCOL_PARAMS.fermaidO3RedRateGL;
+
+  const fermaidO_1 = round2(o1Rate * safeVolumeL * yanScale);
+  const fermaidK_2 = round2(k2Rate * safeVolumeL * yanScale);
+  const dap_2 = round2(dap2Rate * safeVolumeL * yanScale);
+  const zinc_2 = round2(zincRate * safeVolumeL * Math.min(1.25, Math.max(0.5, yanScale)));
+  const fermaidO_3 = round2(o3Rate * safeVolumeL * yanScale);
 
   return {
     strain,

@@ -498,44 +498,55 @@ export function evaluateRightNowQueue(options: {
 
   const { volumes, dosages } = plan;
 
-  const initialLiquidPerTankL = volumes.initialLiquidPerTankL;
-  const redLiquidPerTankL = volumes.redLiquidFermentPerTankL;
+  const effectiveTankCount: 1 | 2 =
+    options.batch?.tankCount ??
+    (options.equipmentProfile?.redTankConfiguration === 'single_tank' ||
+    options.equipmentProfile?.redTankConfig === 'single_primary' ||
+    options.equipmentProfile?.redTankConfig === 'small_30_60l_barrels' ||
+    options.equipmentProfile?.primaryTankCount === 1
+      ? 1
+      : 2);
+  const redTankMultiplier = effectiveTankCount === 1 ? 2 : 1;
+  const round2 = (v: number) => Math.round(v * 100) / 100;
+
+  const initialLiquidPerTankL = round2(volumes.initialLiquidPerTankL * redTankMultiplier);
+  const redLiquidPerTankL = round2(volumes.redLiquidFermentPerTankL * redTankMultiplier);
   const saigneeTotalL = volumes.saigneeTotalL;
   const roseFermentL = volumes.roseClarifiedFermentL;
   const rosePostRackingL = volumes.rosePostRackingL;
   const roseFinalBottlingL = volumes.roseFinalBottlingL;
-  const rack1PerTankL = volumes.rack1PerTankL;
-  const freeRunPerTankL = Math.round((rack1PerTankL / 96) * 100);
-  const finalRedPerTankL = Math.round(volumes.finalRedTotalL / 2);
+  const rack1PerTankL = round2(volumes.rack1PerTankL * redTankMultiplier);
+  const freeRunPerTankL = round2(volumes.freeRunPerTankL * redTankMultiplier);
+  const finalRedPerTankL = round2(volumes.finalRedPerTankL * redTankMultiplier);
 
-  const crushKmsG = dosages.crushKmsPerTankG;
-  const postSaigneeKmsG = dosages.postSaigneeKmsPerTankG;
-  const pecticEnzymeRedG = dosages.pecticEnzymeRedPerTankG;
+  const crushKmsG = round2(dosages.crushKmsPerTankG * redTankMultiplier);
+  const postSaigneeKmsG = round2(dosages.postSaigneeKmsPerTankG * redTankMultiplier);
+  const pecticEnzymeRedG = round2(dosages.pecticEnzymeRedPerTankG * redTankMultiplier);
   const pecticEnzymeRoseG = dosages.pecticEnzymeRoseG;
-  const yeastRedG = dosages.yeastRedPerTankG;
+  const yeastRedG = round2(dosages.yeastRedPerTankG * redTankMultiplier);
   const yeastRoseG = dosages.yeastRoseG;
-  const goFermRedG = dosages.goFermRedPerTankG;
+  const goFermRedG = round2(dosages.goFermRedPerTankG * redTankMultiplier);
   const goFermRoseG = dosages.goFermRoseG;
-  const fermaidO1RedG = dosages.fermaidO1RedPerTankG;
+  const fermaidO1RedG = round2(dosages.fermaidO1RedPerTankG * redTankMultiplier);
   const fermaidO1RoseG = dosages.fermaidO1RoseG;
   const zincRoseG = dosages.zincRoseG;
-  const fermaidK2RedG = dosages.fermaidK2RedPerTankG;
+  const fermaidK2RedG = round2(dosages.fermaidK2RedPerTankG * redTankMultiplier);
   const fermaidK2RoseG = dosages.fermaidK2RoseG;
-  const dapRedG = dosages.dap2RedPerTankG;
+  const dapRedG = round2(dosages.dap2RedPerTankG * redTankMultiplier);
   const dap2RoseG = dosages.dap2RoseG;
-  const zincRedG = dosages.zincRedPerTankG;
-  const redTanninPhase2G = dosages.redTanninPhase2PerTankG;
-  const fermaidO3RedG = dosages.fermaidO3RedPerTankG;
+  const zincRedG = round2(dosages.zincRedPerTankG * redTankMultiplier);
+  const redTanninPhase2G = round2(dosages.redTanninPhase2PerTankG * redTankMultiplier);
+  const fermaidO3RedG = round2(dosages.fermaidO3RedPerTankG * redTankMultiplier);
   const fermaidO3RoseG = dosages.fermaidO3RoseG;
-  const bactilessRedG = dosages.bactilessRedPerTankG;
+  const bactilessRedG = round2(dosages.bactilessRedPerTankG * redTankMultiplier);
   const bactilessRoseG = dosages.bactilessRoseG;
-  const day11KmsG = dosages.day11KmsPerTankG;
+  const day11KmsG = round2(dosages.day11KmsPerTankG * redTankMultiplier);
   const rosePostFermKmsG = dosages.rosePostFermKmsG;
-  const khtRedG = dosages.khtColdStabRedPerTankG;
+  const khtRedG = round2(dosages.khtColdStabRedPerTankG * redTankMultiplier);
   const khtColdStabRoseG = dosages.khtColdStabRoseG;
-  const preBottlingKmsG = dosages.preBottlingKmsPerTankG;
+  const preBottlingKmsG = round2(dosages.preBottlingKmsPerTankG * redTankMultiplier);
   const rosePreBottlingKmsG = dosages.rosePreBottlingKmsG;
-  const ascorbicRedG = dosages.ascorbicRedPerTankG;
+  const ascorbicRedG = round2(dosages.ascorbicRedPerTankG * redTankMultiplier);
   const ascorbicRoseG = dosages.ascorbicRoseG;
 
   const timestampFa = formatNowFa();
@@ -561,15 +572,6 @@ export function evaluateRightNowQueue(options: {
   }
 
   const resolvedEquipmentProfile = resolveEquipmentProfileInput(options.equipmentProfile);
-
-  const effectiveTankCount: 1 | 2 =
-    options.batch?.tankCount ??
-    (options.equipmentProfile?.redTankConfiguration === 'single_tank' ||
-    options.equipmentProfile?.redTankConfig === 'single_primary' ||
-    options.equipmentProfile?.redTankConfig === 'small_30_60l_barrels' ||
-    options.equipmentProfile?.primaryTankCount === 1
-      ? 1
-      : 2);
 
   const produceRose = options.equipmentProfile
     ? (options.equipmentProfile.produceRoseSaignee ?? options.equipmentProfile.producesRoseSaignee)
@@ -861,7 +863,7 @@ export function evaluateRightNowQueue(options: {
       titleFa: 'کراش و سولفیت‌زنی اولیه (۲۵ mg/L SO₂)',
       whyFa: 'حذف مخمرهای وحشی (Kloeckera) و مهار آنزیم پلی‌فنول اکسیداز در لحظه له کردن انگور.',
       howToExecuteFa: `در هر مخزن ${crushKmsG} گرم KMS را در ۵۰۰ میلی‌لیتر آب سرد حل کرده و لایه‌به‌لایه روی توده انگور اسپری کنید.`,
-      scienceNoteFa: `KMS = (25 mg/L × ${initialLiquidPerTankL} L) ÷ 570 = ${crushKmsG} g`,
+      scienceNoteFa: `KMS = (25 mg/L × ${initialLiquidPerTankL} L) ÷ 576 = ${crushKmsG} g`,
       confidenceLabelFa: 'محاسبهٔ استوکیومتری قطعی',
       triggerType: 'sg',
       triggerSG: dynTriggers.initialSG,
@@ -899,7 +901,7 @@ export function evaluateRightNowQueue(options: {
       titleFa: 'خون‌گیری سانیه رُزه و تکمیل سولفیت (+۱۵ mg/L SO₂)',
       whyFa: 'افزایش نسبت پوست به آب‌انگور در مخازن قرمز و رساندن سولفیت پایه به ۴۰ mg/L در ۱۳۲ لیتر باقی‌مانده.',
       howToExecuteFa: `پس از ۳.۵ ساعت خیساندن سرد، از هر مخزن ۱۸ لیتر آب‌انگور زلال برای رُزه جدا کنید و سپس ${postSaigneeKmsG} گرم KMS به هر مخزن قرمز بیفزایید.`,
-      scienceNoteFa: `KMS = (15 mg/L × ${redLiquidPerTankL} L) ÷ 570 = ${postSaigneeKmsG} g`,
+      scienceNoteFa: `KMS = (15 mg/L × ${redLiquidPerTankL} L) ÷ 576 = ${postSaigneeKmsG} g`,
       confidenceLabelFa: 'محاسبهٔ استوکیومتری قطعی',
       triggerType: 'day',
       triggerDay: 0,
@@ -1421,7 +1423,7 @@ export function evaluateRightNowQueue(options: {
       titleFa: 'قفل ضدباکتری بدون مالولاکتیک (Bactiless + KMS روز ۱۱)',
       whyFa: 'حذف کامل باکتری‌های اسید لاکتیک (Oenococcus) و استوباکتر برای حفظ طراوت اسید طبیعی انگور رشه و جلوگیری از پرش pH.',
       howToExecuteFa: `در هر مخزن (${rack1PerTankL} لیتر شراب صاف پس از سیفون اول) ابتدا ${bactilessRedG} گرم Bactiless و سپس ${day11KmsG} گرم KMS تزریق کنید.`,
-      scienceNoteFa: `Bactiless = 0.30 g/L (${bactilessRedG} g) | KMS = (40 mg/L × ${rack1PerTankL} L) ÷ 570 = ${day11KmsG} g`,
+      scienceNoteFa: `Bactiless = 0.30 g/L (${bactilessRedG} g) | KMS = (40 mg/L × ${rack1PerTankL} L) ÷ 576 = ${day11KmsG} g`,
       confidenceLabelFa: 'محاسبهٔ استوکیومتری قطعی',
       triggerType: 'day',
       triggerSG: 0.994,

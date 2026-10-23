@@ -285,7 +285,7 @@ export const InteractiveLabWizardsPanel: React.FC<
       batchId: resolvedBatchId,
       tankId,
       date: formatFaDate(),
-      testType: 'refractometer_correction',
+      testType: 'hydrometer_temp',
       targetAnalyte: `وزن مخصوص اصلاح‌شده هیدرومتر (کالیبراسیون ${hydroCalTemp}°C)`,
       measuredValue: Number(hydroCorrected.trueSG.toFixed(4)),
       unit: 'SG',

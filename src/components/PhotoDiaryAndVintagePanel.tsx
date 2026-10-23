@@ -30,6 +30,10 @@ import {
 import { useLocalStorageState } from '../utils/useLocalStorage.ts';
 import { useEnologyUi } from '../context/EnologyUiContext.tsx';
 import { getCurrentPersianDateTimeStr } from '../utils/persianDate.ts';
+import {
+  useFlexibleProtocol,
+  getEffectiveProtocolPlanForBatch
+} from '../data/masterProtocolConfig.ts';
 
 export interface PhotoDiaryAndVintagePanelProps {
   tankId?: TankId;
@@ -334,6 +338,7 @@ export function buildVintagePassportSummary(params: {
   yeastStrainNameFa?: string;
   yeastStrainCode?: string;
   endogenousGlycerolGL?: number;
+  targetFinalVolumeL?: number;
 }): VintagePassportSummary {
   const sorted = sortFermentationLogs(
     params.logs.filter((l) => !l.isBenchmark)
@@ -343,7 +348,8 @@ export function buildVintagePassportSummary(params: {
   const initSG = params.initialSG ?? first?.sg ?? 1.092;
   const finSG = last?.sg ?? 0.994;
   const abv = calculateAlcoholByVolume(initSG, finSG);
-  const finalVolumeL = params.tankId === 'tank-rose' ? 30 : 93;
+  const finalVolumeL =
+    params.targetFinalVolumeL ?? (params.tankId === 'tank-rose' ? 30 : 93);
   const bottles750mlCount = Math.floor(finalVolumeL / 0.75);
 
   const oakAdditions = params.additions.filter(
@@ -751,9 +757,19 @@ export function exportWorkshopCalendarICS(startDateIso: string): string {
 export const PhotoDiaryAndVintagePanel: React.FC<
   PhotoDiaryAndVintagePanelProps
 > = ({ tankId = 'tank-a' }) => {
-  const { activeBatch, dataVersion, getYeastStrainForTank, openYeastSelectorModal } =
-    useEnologyUi();
+  const {
+    activeBatch,
+    tankCount,
+    dataVersion,
+    getYeastStrainForTank,
+    openYeastSelectorModal
+  } = useEnologyUi();
   void openYeastSelectorModal;
+  const { plan: flexPlan } = useFlexibleProtocol();
+  const batchPlan = useMemo(
+    () => getEffectiveProtocolPlanForBatch(activeBatch, flexPlan),
+    [activeBatch, flexPlan]
+  );
   const activeTankYeast = getYeastStrainForTank(tankId);
   const [photos, setPhotos] = useState<PhotoDiaryEntry[]>([]);
   const [photoError, setPhotoError] = useState<string | null>(null);
@@ -769,11 +785,12 @@ export const PhotoDiaryAndVintagePanel: React.FC<
     activeBatch?.id && activeBatch.id !== 'batch-rasha-1403'
       ? `_${activeBatch.id}`
       : '';
+  const effectiveTankId: TankId = tankId || 'tank-a';
   const [activeCheckpoint, setActiveCheckpoint] =
     useState<TastingCheckpointKey>('day_10');
   const [tastingsByCheckpoint, setTastingsByCheckpoint] = useLocalStorageState<
     Record<string, ScheduledTastingRecord>
-  >(`enology_scheduled_tastings_v1${batchKeySuffix}`, {
+  >(`enology_scheduled_tastings_v1${batchKeySuffix}_${effectiveTankId}`, {
     day_10: {
       checkpoint: 'day_10',
       appearance: 4,
@@ -1074,7 +1091,15 @@ export const PhotoDiaryAndVintagePanel: React.FC<
       wineColorLabelFa: currentTasting.wineColorLabelFa,
       yeastStrainNameFa: `${activeTankYeast.nameFa} (${activeTankYeast.brand})`,
       yeastStrainCode: activeTankYeast.code,
-      endogenousGlycerolGL: activeTankYeast.glycerolYieldGL
+      endogenousGlycerolGL: activeTankYeast.glycerolYieldGL,
+      targetFinalVolumeL:
+        tankId === 'tank-rose'
+          ? batchPlan.volumes.roseFinalBottlingL
+          : Math.round(
+              batchPlan.volumes.finalRedPerTankL *
+                (tankCount === 1 ? 2 : 1) *
+                100
+            ) / 100
     });
   }, [
     tankId,
@@ -1082,7 +1107,9 @@ export const PhotoDiaryAndVintagePanel: React.FC<
     currentBatchMetrics,
     currentTasting,
     dataVersion,
-    activeTankYeast
+    activeTankYeast,
+    batchPlan.volumes,
+    tankCount
   ]);
 
   return (

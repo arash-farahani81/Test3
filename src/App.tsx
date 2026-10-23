@@ -33,6 +33,7 @@ import {
   ENOLOGY_GLOSSARY_DICTIONARY
 } from './context/EnologyUiContext.tsx';
 import { enologyDb } from './db/enologyDatabase.ts';
+import type { TankId } from './types/index.ts';
 import { sortFermentationLogs } from './utils/trackingCalculations.ts';
 import { useLocalStorageState } from './utils/useLocalStorage.ts';
 
@@ -71,7 +72,10 @@ function AppWorkspace() {
     closeYeastSelectorModal,
     activeTankYeastStrain,
     equipmentCapabilities,
+    equipmentProfile,
+    tankCount,
     activeBatch,
+    activeBatchId,
     dataVersion,
     notifyDataChanged
   } = useEnologyUi();
@@ -93,16 +97,38 @@ function AppWorkspace() {
   const [glossarySearch, setGlossarySearch] = useState<string>('');
 
   const hasActiveFermentation = useMemo(() => {
-    const allLogs = sortFermentationLogs(
-      enologyDb.getLogs(undefined, false, activeBatch?.id).filter((l) => !l.isBenchmark)
-    );
-    const tanks = ['tank-a', 'tank-b', 'tank-rose'] as const;
-    return tanks.some((tId) => {
-      const tLogs = allLogs.filter((l) => l.tankId === tId);
-      const latest = tLogs[tLogs.length - 1];
-      return latest ? latest.sg > 1.0 : true;
+    const producesRose =
+      equipmentProfile.producesRoseSaignee !== false &&
+      (equipmentProfile as { produceRoseSaignee?: boolean }).produceRoseSaignee !== false;
+    const activeVesselIds: TankId[] =
+      activeBatch?.targetStyle === 'rose'
+        ? ['tank-rose']
+        : [
+            ...(tankCount === 1
+              ? (['tank-a'] as TankId[])
+              : (['tank-a', 'tank-b'] as TankId[])),
+            ...(producesRose ? (['tank-rose'] as TankId[]) : [])
+          ];
+    const hasDemo = enologyDb.hasDemoData();
+    return activeVesselIds.some((tId) => {
+      const tankLogs = enologyDb.getLogs(tId, false, activeBatchId || activeBatch?.id);
+      const real = tankLogs.filter((l) => !l.isBenchmark);
+      const effective = real.length > 0 ? real : hasDemo ? tankLogs : [];
+      const sorted = sortFermentationLogs(effective);
+      const latest = sorted[sorted.length - 1];
+      return latest ? latest.sg > 1.0 : false;
     });
-  }, [dataRefreshTick, dataVersion, isQuickLogOpen, cellarMode, activeBatch?.id]);
+  }, [
+    dataRefreshTick,
+    dataVersion,
+    isQuickLogOpen,
+    cellarMode,
+    activeBatch?.id,
+    activeBatch?.targetStyle,
+    activeBatchId,
+    tankCount,
+    equipmentProfile
+  ]);
 
   const backupHealth = useMemo(
     () => enologyDb.getBackupHealthStatus(),
@@ -182,7 +208,12 @@ function AppWorkspace() {
 
         <Header
           activeFiveTab={activeTab}
-          onFiveTabChange={setActiveTab}
+          onFiveTabChange={(tab) => {
+            setActiveTab(tab);
+            if (tab !== 'today') {
+              setCellarMode(false);
+            }
+          }}
           cellarMode={cellarMode}
           onToggleCellarMode={() => setCellarMode((v) => !v)}
         />
@@ -238,6 +269,52 @@ function AppWorkspace() {
           isOpen={isEquipmentModalOpen}
           onClose={closeEquipmentModal}
         />
+        <YeastStrainSelectorModal
+          isOpen={isYeastSelectorOpen}
+          onClose={closeYeastSelectorModal}
+        />
+        {activeGlossaryItem && (
+          <div
+            className="fixed inset-0 z-50 bg-stone-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-3"
+            onClick={closeGlossaryTerm}
+          >
+            <div
+              className="bg-white border border-stone-200 rounded-2xl max-w-md w-full p-4 shadow-2xl space-y-2.5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-2 border-b border-stone-100 pb-2">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-amber-600" />
+                  <h4 className="text-sm font-bold text-stone-900">
+                    {activeGlossaryItem.termFa}{' '}
+                    <span className="font-mono text-xs text-stone-500">
+                      ({activeGlossaryItem.termEn})
+                    </span>
+                  </h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeGlossaryTerm}
+                  className="p-1 rounded-lg text-stone-400 hover:text-stone-700 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-xs text-stone-700 leading-relaxed font-medium">
+                {activeGlossaryItem.shortTooltipFa}
+              </p>
+              {activeGlossaryItem.formulaOrRangeFa && (
+                <div className="text-xs font-mono font-bold text-amber-900 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-xl">
+                  {activeGlossaryItem.formulaOrRangeFa}
+                </div>
+              )}
+              <p className="text-xs text-stone-600 leading-relaxed">
+                <strong className="text-stone-900">اهمیت کارگاهی:</strong>{' '}
+                {activeGlossaryItem.whyItMattersFa}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

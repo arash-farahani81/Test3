@@ -825,7 +825,8 @@ class EnologyDatabaseService {
   public syncActiveBatchProtocolSnapshot(params: FlexibleProtocolParams): WineBatch | null {
     const storedActiveBatchId =
       typeof localStorage !== 'undefined'
-        ? localStorage.getItem('enology_ui_active_batch_v1')
+        ? localStorage.getItem('enology_global_active_batch_id') ||
+          localStorage.getItem('enology_ui_active_batch_v1')
         : null;
     const targetBatch =
       (storedActiveBatchId
@@ -846,7 +847,9 @@ class EnologyDatabaseService {
   public hasDemoData(): boolean {
     return (
       this.batches.some((b) => b.isDemo === true) ||
-      this.additions.some((a) => !a.isDeleted && a.isDemo === true)
+      this.logs.some((l) => !l.isDeleted && !l.isBenchmark && l.isDemo === true) ||
+      this.additions.some((a) => !a.isDeleted && a.isDemo === true) ||
+      this.analyses.some((a) => !a.isDeleted && a.isDemo === true)
     );
   }
 
