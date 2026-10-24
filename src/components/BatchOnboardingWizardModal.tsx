@@ -338,7 +338,7 @@ export const BatchOnboardingWizardModal: React.FC<
       aria-label="ویزارد ۵ مرحله‌ای راه‌اندازی بچ جدید"
       className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 font-['Vazirmatn',sans-serif]"
     >
-      <div className="bg-surface text-ink border border-line rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto shadow-2xl">
+      <div className="bg-surface text-ink border border-line rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto shadow-2xl animate-sheet-up">
         {/* Header */}
         <div className="bg-surface px-5 py-4 border-b border-line flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
@@ -390,9 +390,17 @@ export const BatchOnboardingWizardModal: React.FC<
         </div>
 
         <div className="p-5 space-y-4">
-          {/* STEP 1: Grape Weight & Tank Count */}
-          {step === 1 && (
-            <div className="space-y-4">
+          <div className="w-full h-1.5 bg-line/50 rounded-full overflow-hidden mb-4">
+            <div
+              className="h-full bg-wine rounded-full transition-spring"
+              style={{ width: `${(step / 5) * 100}%` }}
+            />
+          </div>
+
+          <div key={step} className="animate-fluid-enter space-y-4">
+            {/* STEP 1: Grape Weight & Tank Count */}
+            {step === 1 && (
+              <div className="space-y-4">
               <div
                 data-testid="batch-wizard-equipment-sync-banner"
                 className="bg-paper border border-line rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs"
@@ -510,6 +518,159 @@ export const BatchOnboardingWizardModal: React.FC<
                       {estimatedLiquidPerTankL} لیتر
                     </strong>
                   </div>
+                  {(() => {
+                    const fillRatio = Math.min(
+                      0.9,
+                      Math.max(
+                        0.25,
+                        Math.pow(Math.max(20, grapeWeightKg) / 1000, 0.35)
+                      )
+                    );
+                    const vesselTopY = 6;
+                    const vesselHeight = 34;
+                    const fillHeight = Math.round(vesselHeight * fillRatio * 10) / 10;
+                    const fillY =
+                      Math.round((vesselTopY + vesselHeight - fillHeight) * 10) / 10;
+                    const roseFillHeight =
+                      Math.round(vesselHeight * Math.min(0.82, fillRatio * 0.85) * 10) /
+                      10;
+                    const roseFillY =
+                      Math.round((vesselTopY + vesselHeight - roseFillHeight) * 10) /
+                      10;
+                    return (
+                      <svg
+                        data-testid="wizard-live-vessel-split-svg"
+                        viewBox="0 0 180 56"
+                        className="w-full h-16 rounded-xl border border-line bg-paper p-2 mt-2"
+                      >
+                        {tankCount === 1 ? (
+                          <g>
+                            <rect
+                              x="20"
+                              y={vesselTopY}
+                              width="68"
+                              height={vesselHeight}
+                              rx="4"
+                              fill="#fbf9f4"
+                              stroke="#6b625a"
+                              strokeWidth="1.2"
+                            />
+                            <rect
+                              x="21"
+                              y={fillY}
+                              width="66"
+                              height={fillHeight}
+                              rx="3"
+                              fill="#6e1f2f"
+                              opacity="0.88"
+                            />
+                            <text
+                              x="54"
+                              y="51"
+                              textAnchor="middle"
+                              fontSize="6.5"
+                              fill="#1f1a17"
+                              fontWeight="700"
+                            >
+                              {`${previewPlan.volumes.redLiquidFermentTotalL}L قرمز (۱ مخزن)`}
+                            </text>
+                          </g>
+                        ) : (
+                          <g>
+                            <rect
+                              x="14"
+                              y={vesselTopY}
+                              width="36"
+                              height={vesselHeight}
+                              rx="4"
+                              fill="#fbf9f4"
+                              stroke="#6b625a"
+                              strokeWidth="1.2"
+                            />
+                            <rect
+                              x="15"
+                              y={fillY}
+                              width="34"
+                              height={fillHeight}
+                              rx="3"
+                              fill="#6e1f2f"
+                              opacity="0.88"
+                            />
+                            <rect
+                              x="56"
+                              y={vesselTopY}
+                              width="36"
+                              height={vesselHeight}
+                              rx="4"
+                              fill="#fbf9f4"
+                              stroke="#6b625a"
+                              strokeWidth="1.2"
+                            />
+                            <rect
+                              x="57"
+                              y={fillY}
+                              width="34"
+                              height={fillHeight}
+                              rx="3"
+                              fill="#6e1f2f"
+                              opacity="0.88"
+                            />
+                            <text
+                              x="53"
+                              y="51"
+                              textAnchor="middle"
+                              fontSize="6.5"
+                              fill="#1f1a17"
+                              fontWeight="700"
+                            >
+                              {`2 × ${previewPlan.volumes.redLiquidFermentPerTankL}L قرمز (A+B)`}
+                            </text>
+                          </g>
+                        )}
+                        <g>
+                          <rect
+                            x="130"
+                            y="3"
+                            width="10"
+                            height="5"
+                            rx="1.5"
+                            fill="#fbf9f4"
+                            stroke="#6b625a"
+                            strokeWidth="1.1"
+                          />
+                          <rect
+                            x="118"
+                            y={vesselTopY + 2}
+                            width="34"
+                            height={vesselHeight - 2}
+                            rx="9"
+                            fill="#fbf9f4"
+                            stroke="#6b625a"
+                            strokeWidth="1.2"
+                          />
+                          <rect
+                            x="119.5"
+                            y={roseFillY}
+                            width="31"
+                            height={roseFillHeight}
+                            rx="7"
+                            fill="#e88d72"
+                            opacity="0.9"
+                          />
+                          <text
+                            x="135"
+                            y="51"
+                            textAnchor="middle"
+                            fontSize="6"
+                            fill="#6e1f2f"
+                            fontWeight="700"
+                          >
+                            {`${previewPlan.volumes.saigneeTotalL}L سانیه ← ${previewPlan.volumes.roseClarifiedFermentL}L رُزه`}
+                          </text>
+                        </g>
+                      </svg>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -980,6 +1141,7 @@ export const BatchOnboardingWizardModal: React.FC<
               </div>
             </div>
           )}
+          </div>
 
           {/* Footer Navigation Buttons */}
           <div className="flex items-center justify-between pt-3 border-t border-line">

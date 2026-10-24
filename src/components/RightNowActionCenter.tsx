@@ -44,6 +44,38 @@ import {
 import { LivingTankVisualTwin } from './LivingTankVisualTwin.tsx';
 import { EngravedWaxSealStamp } from './PhotoDiaryAndVintagePanel.tsx';
 
+export interface HeroWindowArcMetrics {
+  ratio: number;
+  arcLength: number;
+  dashOffset: number;
+  dotX: number;
+  dotY: number;
+  openSG: number;
+  closeSG: number;
+}
+
+export function computeHeroWindowArcMetrics(params: {
+  currentSG: number;
+  initialSG: number;
+  triggerSG?: number;
+  windowCloseSG?: number;
+}): HeroWindowArcMetrics {
+  const openSG =
+    params.triggerSG !== undefined
+      ? Math.max(params.triggerSG + 0.002, (params.windowCloseSG ?? 0.993) + 0.006)
+      : params.initialSG;
+  const closeSG = params.windowCloseSG !== undefined ? params.windowCloseSG : 0.993;
+  const span = Math.max(0.004, openSG - closeSG);
+  const rawRatio = (openSG - params.currentSG) / span;
+  const ratio = Math.min(1, Math.max(0, Math.round(rawRatio * 1000) / 1000));
+  const arcLength = 78.54;
+  const dashOffset = Math.round(arcLength * (1 - ratio) * 10) / 10;
+  const angle = Math.PI * (1 - ratio);
+  const dotX = Math.round((34 + 25 * Math.cos(angle)) * 10) / 10;
+  const dotY = Math.round((32 - 25 * Math.sin(angle)) * 10) / 10;
+  return { ratio, arcLength, dashOffset, dotX, dotY, openSG, closeSG };
+}
+
 export interface RightNowActionCenterProps {
   activeTankId?: TankId;
   onTankChange?: (tankId: TankId) => void;
@@ -647,21 +679,37 @@ export const RightNowActionCenter: React.FC<RightNowActionCenterProps> = ({
         </div>
       </div>
 
-      {/* 3. 10-Second Undo Banner */}
+      {/* 3. 10-Second Undo Banner (Idea #028) */}
       {undoSession && (
-        <div className="bg-surface text-ink border border-ok rounded-xl p-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <CheckCircle2 className="w-4 h-4 text-ok shrink-0" />
-            <span>«{undoSession.milestoneTitleFa}» در دفتر ثبت شد.</span>
+        <div className="bg-surface text-ink border border-ok rounded-xl p-3 animate-spring-pop">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <CheckCircle2 className="w-4 h-4 text-ok shrink-0" />
+              <span>«{undoSession.milestoneTitleFa}» در دفتر ثبت شد.</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleUndoLastCommit}
+              className="px-3 py-1.5 rounded-lg bg-wine text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>ثبت شد — بازگردانی ({undoSession.remainingSec} ثانیه)</span>
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={handleUndoLastCommit}
-            className="px-3 py-1.5 rounded-lg bg-wine text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+          <div
+            data-testid="undo-linear-progress-bar"
+            className="w-full h-1.5 bg-line/50 rounded-full overflow-hidden mt-2"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>ثبت شد — بازگردانی ({undoSession.remainingSec} ثانیه)</span>
-          </button>
+            <div
+              className="h-full bg-ok transition-all duration-300"
+              style={{
+                width: `${Math.min(
+                  100,
+                  Math.max(0, (undoSession.remainingSec / 10) * 100)
+                )}%`
+              }}
+            />
+          </div>
         </div>
       )}
 
@@ -737,14 +785,64 @@ export const RightNowActionCenter: React.FC<RightNowActionCenterProps> = ({
             : 'bg-surface border border-line text-ink rounded-xl p-5'
         }
       >
-        {primaryAction ? (
+        {primaryAction ? (() => {
+          const heroArc = computeHeroWindowArcMetrics({
+            currentSG: latestLog?.sg ?? plan.triggers.initialSG,
+            initialSG: plan.triggers.initialSG,
+            triggerSG: primaryAction.triggerSG,
+            windowCloseSG: primaryAction.windowCloseSG
+          });
+          return (
           <div>
-            <p className="text-sm font-medium text-ink-soft">
-              {primaryAction.stateBadgeFa}
-            </p>
-            <h2 className="mt-1 text-2xl font-bold text-ink">
-              {primaryAction.titleFa}
-            </h2>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-ink-soft">
+                  {primaryAction.stateBadgeFa}
+                </p>
+                <h2 className="mt-1 text-2xl font-bold text-ink">
+                  {primaryAction.titleFa}
+                </h2>
+              </div>
+              <svg
+                data-testid="hero-window-arc-gauge-svg"
+                viewBox="0 0 68 38"
+                className="w-16 h-10 shrink-0"
+                aria-hidden="true"
+              >
+                <path
+                  d="M 9 32 A 25 25 0 0 1 59 32"
+                  fill="none"
+                  stroke="#e4dccd"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M 9 32 A 25 25 0 0 1 59 32"
+                  fill="none"
+                  stroke={primaryAction.state === 'missed' ? '#a8661a' : '#6e1f2f'}
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  strokeDasharray={heroArc.arcLength}
+                  strokeDashoffset={heroArc.dashOffset}
+                  className="transition-spring"
+                />
+                <circle
+                  cx={heroArc.dotX}
+                  cy={heroArc.dotY}
+                  r="3.2"
+                  fill="#1f1a17"
+                  className="transition-spring"
+                />
+                <text
+                  x="34"
+                  y="31"
+                  textAnchor="middle"
+                  className="text-xs font-bold fill-current"
+                >
+                  {Math.round(heroArc.ratio * 100)}%
+                </text>
+              </svg>
+            </div>
 
             {primaryAction.confidenceLabelFa &&
               primaryAction.confidenceLabelFa !== 'محاسبهٔ استوکیومتری قطعی' && (
@@ -999,7 +1097,8 @@ export const RightNowActionCenter: React.FC<RightNowActionCenterProps> = ({
               </div>
             )}
           </div>
-        ) : (
+          );
+        })() : (
           /* Hero Priority 5: All Clear Calm State on Surface */
           <div className="flex items-start gap-3">
             <CheckCircle2 className="w-6 h-6 text-ok shrink-0 mt-0.5" />
@@ -1479,46 +1578,79 @@ export const RightNowActionCenter: React.FC<RightNowActionCenterProps> = ({
             آخرین اندازه‌گیری‌های مخزن:
           </span>
 
-          <span className="px-3 py-1 rounded-lg bg-paper border border-line text-xs font-medium text-ink font-mono ltr-metric">
-            {'SG: ' +
-              latestSG.toFixed(3) +
-              ' (' +
-              (sgDelta < -0.0005
-                ? `↓ ${Math.abs(sgDelta).toFixed(3)}`
-                : sgDelta > 0.0005
-                ? `↑ +${sgDelta.toFixed(3)}`
-                : '→ 0.000') +
-              ')'}
+          <span className="px-3 py-1 rounded-lg bg-paper border border-line text-xs font-medium text-ink font-mono ltr-metric transition-spring inline-flex items-center gap-1">
+            <span>
+              {'SG: ' +
+                latestSG.toFixed(3) +
+                ' (' +
+                (sgDelta < -0.0005
+                  ? `-${Math.abs(sgDelta).toFixed(3)}`
+                  : sgDelta > 0.0005
+                  ? `+${sgDelta.toFixed(3)}`
+                  : '0.000') +
+                ')'}
+            </span>
+            <svg viewBox="0 0 12 12" className="w-3 h-3 inline-block shrink-0" aria-hidden="true">
+              {sgDelta < -0.0005 ? (
+                <path d="M2 3 L10 9 M10 9 H5 M10 9 V4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              ) : sgDelta > 0.0005 ? (
+                <path d="M2 9 L10 3 M10 3 H5 M10 3 V8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              ) : (
+                <path d="M2 6 H10 M7 3.5 L10 6 L7 8.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              )}
+            </svg>
           </span>
 
           <span
-            className={`px-3 py-1 rounded-lg border text-xs font-medium font-mono ltr-metric ${
+            className={`px-3 py-1 rounded-lg border text-xs font-medium font-mono ltr-metric transition-spring inline-flex items-center gap-1 ${
               isCapTempCritical
                 ? 'bg-red-50 border-danger text-danger'
                 : 'bg-paper border-line text-ink'
             }`}
           >
-            {'Cap: ' +
-              latestTempCap.toFixed(1) +
-              '°C (' +
-              (tempDelta < -0.05
-                ? `↓ ${Math.abs(tempDelta).toFixed(1)}`
-                : tempDelta > 0.05
-                ? `↑ +${tempDelta.toFixed(1)}`
-                : '→ 0.0') +
-              ')'}
+            <span>
+              {'Cap: ' +
+                latestTempCap.toFixed(1) +
+                '°C (' +
+                (tempDelta < -0.05
+                  ? `-${Math.abs(tempDelta).toFixed(1)}`
+                  : tempDelta > 0.05
+                  ? `+${tempDelta.toFixed(1)}`
+                  : '0.0') +
+                ')'}
+            </span>
+            <svg viewBox="0 0 12 12" className="w-3 h-3 inline-block shrink-0" aria-hidden="true">
+              {tempDelta < -0.05 ? (
+                <path d="M2 3 L10 9 M10 9 H5 M10 9 V4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              ) : tempDelta > 0.05 ? (
+                <path d="M2 9 L10 3 M10 3 H5 M10 3 V8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              ) : (
+                <path d="M2 6 H10 M7 3.5 L10 6 L7 8.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              )}
+            </svg>
           </span>
 
-          <span className="px-3 py-1 rounded-lg bg-paper border border-line text-xs font-medium text-ink font-mono ltr-metric">
-            {'pH: ' +
-              latestPH.toFixed(2) +
-              ' (' +
-              (phDelta < -0.005
-                ? `↓ ${Math.abs(phDelta).toFixed(2)}`
-                : phDelta > 0.005
-                ? `↑ +${phDelta.toFixed(2)}`
-                : '→ 0.00') +
-              ')'}
+          <span className="px-3 py-1 rounded-lg bg-paper border border-line text-xs font-medium text-ink font-mono ltr-metric transition-spring inline-flex items-center gap-1">
+            <span>
+              {'pH: ' +
+                latestPH.toFixed(2) +
+                ' (' +
+                (phDelta < -0.005
+                  ? `-${Math.abs(phDelta).toFixed(2)}`
+                  : phDelta > 0.005
+                  ? `+${phDelta.toFixed(2)}`
+                  : '0.00') +
+                ')'}
+            </span>
+            <svg viewBox="0 0 12 12" className="w-3 h-3 inline-block shrink-0" aria-hidden="true">
+              {phDelta < -0.005 ? (
+                <path d="M2 3 L10 9 M10 9 H5 M10 9 V4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              ) : phDelta > 0.005 ? (
+                <path d="M2 9 L10 3 M10 3 H5 M10 3 V8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              ) : (
+                <path d="M2 6 H10 M7 3.5 L10 6 L7 8.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              )}
+            </svg>
           </span>
         </div>
 
@@ -1543,7 +1675,7 @@ export const RightNowActionCenter: React.FC<RightNowActionCenterProps> = ({
         </div>
       </div>
 
-      {/* 10. Compact Bottling Readiness Safety Gate Card */}
+      {/* 10. Compact Bottling Readiness Safety Gate Card (Idea #027 / IDEA-21) */}
       {!compact && (
         <div
           className={`rounded-xl p-4 border ${
@@ -1558,11 +1690,52 @@ export const RightNowActionCenter: React.FC<RightNowActionCenterProps> = ({
               onClick={() => setShowBottlingGate((v) => !v)}
               className="flex items-center gap-2 text-sm font-bold text-ink cursor-pointer flex-wrap text-right"
             >
-              {bottlingGate.canStartBottling ? (
-                <Unlock className="w-4 h-4 text-ok shrink-0" />
-              ) : (
-                <Lock className="w-4 h-4 text-ink-soft shrink-0" />
-              )}
+              <svg
+                data-testid="bottling-gate-shield-lock-svg"
+                viewBox="0 0 36 36"
+                className="w-8 h-8 shrink-0 transition-spring"
+                aria-hidden="true"
+              >
+                <path
+                  d="M 18 3 L 30 8 V 17 C 30 25.5 24.5 31 18 33 C 11.5 31 6 25.5 6 17 V 8 Z"
+                  fill={
+                    bottlingGate.allBlockingPassed
+                      ? '#3f6b4a'
+                      : bottlingGate.canStartBottling
+                      ? '#a8661a'
+                      : '#b3261e'
+                  }
+                  fillOpacity="0.15"
+                  stroke={
+                    bottlingGate.allBlockingPassed
+                      ? '#3f6b4a'
+                      : bottlingGate.canStartBottling
+                      ? '#a8661a'
+                      : '#b3261e'
+                  }
+                  strokeWidth="2"
+                  className="transition-spring"
+                />
+                {bottlingGate.allBlockingPassed ? (
+                  <path
+                    d="M 13 18.5 L 16.5 22 L 23.5 14.5"
+                    fill="none"
+                    stroke="#3f6b4a"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                ) : (
+                  <g
+                    stroke={bottlingGate.canStartBottling ? '#a8661a' : '#b3261e'}
+                    strokeWidth="1.8"
+                    fill="none"
+                  >
+                    <path d="M 14.5 16 V 13.5 A 3.5 3.5 0 0 1 21.5 13.5 V 16" />
+                    <rect x="12.5" y="16" width="11" height="8.5" rx="1.8" />
+                  </g>
+                )}
+              </svg>
               <span>
                 {'دروازهٔ آمادگی بطری‌گذاری: ' +
                   passedBlockingCount +

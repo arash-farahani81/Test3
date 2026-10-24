@@ -1676,15 +1676,55 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {analysis && (
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded border ${
-                        analysis.statusColor === 'emerald'
-                          ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
-                          : analysis.statusColor === 'amber'
-                          ? 'bg-amber-50 text-amber-900 border-amber-300'
-                          : 'bg-rose-50 text-rose-900 border-rose-300'
-                      }`}>
-                        نمره سلامت: {analysis.healthScore}٪
-                      </span>
+                      <>
+                        <svg
+                          data-testid="tracker-radial-health-gauge-svg"
+                          viewBox="0 0 28 28"
+                          className="w-6 h-6 shrink-0"
+                          aria-hidden="true"
+                        >
+                          <circle
+                            cx="14"
+                            cy="14"
+                            r="10.5"
+                            fill="none"
+                            stroke="#e4dccd"
+                            strokeWidth="2.6"
+                          />
+                          <circle
+                            cx="14"
+                            cy="14"
+                            r="10.5"
+                            fill="none"
+                            stroke={
+                              analysis.healthScore >= 90
+                                ? '#3f6b4a'
+                                : analysis.healthScore >= 70
+                                ? '#a8661a'
+                                : '#b3261e'
+                            }
+                            strokeWidth="2.6"
+                            strokeDasharray="65.97"
+                            strokeDashoffset={
+                              Math.round(
+                                65.97 * (1 - analysis.healthScore / 100) * 10
+                              ) / 10
+                            }
+                            strokeLinecap="round"
+                            transform="rotate(-90 14 14)"
+                            className="transition-spring"
+                          />
+                        </svg>
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded border ${
+                          analysis.statusColor === 'emerald'
+                            ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                            : analysis.statusColor === 'amber'
+                            ? 'bg-amber-50 text-amber-900 border-amber-300'
+                            : 'bg-rose-50 text-rose-900 border-rose-300'
+                        }`}>
+                          نمره سلامت: {analysis.healthScore}٪
+                        </span>
+                      </>
                     )}
                     {isRowExpanded('diagnosis') ? (
                       <ChevronUp className="w-4 h-4 text-stone-500" />
@@ -1785,8 +1825,22 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
                   <div className="flex items-center gap-2 shrink-0">
                     {benchmarkComparison.hasRealLogs && (
                       <>
-                        <span className="font-mono tabular-nums font-bold bg-indigo-50 text-indigo-900 border border-indigo-200 text-xs px-2 py-0.5 rounded-lg">
-                          مصرف قند: {benchmarkComparison.sugarDepletionPct}٪
+                        <span className="font-mono tabular-nums font-bold bg-indigo-50 text-indigo-900 border border-indigo-200 text-xs px-2 py-0.5 rounded-lg inline-flex items-center">
+                          <span>مصرف قند: {benchmarkComparison.sugarDepletionPct}٪</span>
+                          <span
+                            data-testid="tracker-sugar-depletion-pill-bar"
+                            className="w-14 h-2 bg-line/60 rounded-full overflow-hidden inline-flex align-middle mx-1.5"
+                          >
+                            <span
+                              className="h-full bg-wine rounded-full transition-all duration-500"
+                              style={{
+                                width: `${Math.min(
+                                  100,
+                                  Math.max(0, benchmarkComparison.sugarDepletionPct)
+                                )}%`
+                              }}
+                            />
+                          </span>
                         </span>
                         <span className="font-mono tabular-nums font-bold bg-wine text-white text-xs px-2.5 py-0.5 rounded-lg">
                           انطباق: {benchmarkComparison.alignmentScore}٪
@@ -2658,7 +2712,7 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
             <button
               type="button"
               onClick={() => setLogbookTab('daily-logs')}
-              className={`px-3 py-2.5 rounded-xl font-bold flex items-center justify-between gap-2 cursor-pointer transition-all whitespace-nowrap border ${
+              className={`px-3 py-2.5 rounded-xl font-bold flex items-center justify-between gap-2 cursor-pointer transition-spring whitespace-nowrap border ${
                 logbookTab === 'daily-logs'
                   ? 'bg-wine text-white border-wine shadow-xs'
                   : 'bg-paper text-ink border-line hover:bg-surface'
@@ -2676,7 +2730,7 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
             <button
               type="button"
               onClick={() => setLogbookTab('chemical-additions')}
-              className={`px-3 py-2.5 rounded-xl font-bold flex items-center justify-between gap-2 cursor-pointer transition-all whitespace-nowrap border ${
+              className={`px-3 py-2.5 rounded-xl font-bold flex items-center justify-between gap-2 cursor-pointer transition-spring whitespace-nowrap border ${
                 logbookTab === 'chemical-additions'
                   ? 'bg-wine text-white border-wine shadow-xs'
                   : 'bg-paper text-ink border-line hover:bg-surface'
@@ -2694,7 +2748,7 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
             <button
               type="button"
               onClick={() => setLogbookTab('lab-analyses')}
-              className={`px-3 py-2.5 rounded-xl font-bold flex items-center justify-between gap-2 cursor-pointer transition-all whitespace-nowrap border ${
+              className={`px-3 py-2.5 rounded-xl font-bold flex items-center justify-between gap-2 cursor-pointer transition-spring whitespace-nowrap border ${
                 logbookTab === 'lab-analyses'
                   ? 'bg-wine text-white border-wine shadow-xs'
                   : 'bg-paper text-ink border-line hover:bg-surface'
@@ -2712,7 +2766,7 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
             <button
               type="button"
               onClick={() => setLogbookTab('sensory-eval')}
-              className={`px-3 py-2.5 rounded-xl font-bold flex items-center justify-between gap-2 cursor-pointer transition-all whitespace-nowrap border ${
+              className={`px-3 py-2.5 rounded-xl font-bold flex items-center justify-between gap-2 cursor-pointer transition-spring whitespace-nowrap border ${
                 logbookTab === 'sensory-eval'
                   ? 'bg-wine text-white border-wine shadow-xs'
                   : 'bg-paper text-ink border-line hover:bg-surface'
@@ -2729,6 +2783,7 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
           </div>
         </div>
 
+        <div key={logbookTab} className="animate-fluid-enter">
         {/* ------------------------------------------------------------------- */}
         {/* LOGBOOK TAB 1: DAILY FERMENTATION LOGS TABLE                        */}
         {/* ------------------------------------------------------------------- */}
@@ -3326,7 +3381,7 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
             </div>
           );
         })()}
-
+        </div>
       </div>
 
       {/* ===================================================================== */}

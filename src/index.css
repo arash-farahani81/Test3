@@ -66,3 +66,109 @@
     border: 1px solid #e5e7eb !important;
   }
 }
+
+@keyframes enology-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes enology-spring-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes enology-sheet-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes enology-halo-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.22);
+    opacity: 0.12;
+  }
+}
+
+@keyframes enology-wave-drift {
+  0%,
+  100% {
+    transform: translateX(0px);
+  }
+  50% {
+    transform: translateX(-4px);
+  }
+}
+
+.animate-fluid-enter {
+  animation: enology-fade-up 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-spring-pop {
+  animation: enology-spring-pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.animate-sheet-up {
+  animation: enology-sheet-up 280ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.animate-halo-pulse {
+  animation: enology-halo-pulse 2.4s ease-in-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+.animate-wave-drift {
+  animation: enology-wave-drift 3.6s ease-in-out infinite;
+}
+
+.transition-spring {
+  transition: all 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.975);
+  transition: transform 90ms ease-out;
+}
+
+details[open] > *:not(summary) {
+  animation: enology-fade-up 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+

@@ -26,7 +26,8 @@ import {
   calculateStagedH2O2Plan,
   calculateChaptalization,
   buildCalculatorDirectAdditions,
-  computeGraduatedSyringeMetrics
+  computeGraduatedSyringeMetrics,
+  evaluateChemicalAdditionCompatibility
 } from './enologyUtils.ts';
 import {
   IDEAL_DEFAULT_PROTOCOL_PARAMS,
@@ -526,4 +527,70 @@ test('calculateChaptalization and calculateMolecularSO2 edge cases: sucrose volu
   assert.equal(calculateMolecularSO2(Number.NaN, 3.5), 0);
   assert.equal(calculateMolecularSO2(35, Number.NaN), 0);
 });
+
+test('evaluateChemicalAdditionCompatibility: flags enzyme within 30m of KMS, ascorbic with low Free SO2, and DAP below 1/3 sugar ceiling (IDEA-34)', () => {
+  const nowMs = Date.parse('2026-10-01T12:20:00.000Z');
+
+  // 1. Enzyme within 15 minutes of KMS -> danger conflict
+  const enzymeConflict = evaluateChemicalAdditionCompatibility({
+    selectedCompound: 'enzyme',
+    recentAdditions: [
+      {
+        compoundType: 'kms',
+        createdAt: '2026-10-01T12:05:00.000Z'
+      }
+    ],
+    currentSG: 1.092,
+    nowMs
+  });
+  assert.equal(enzymeConflict.hasConflict, true);
+  assert.equal(enzymeConflict.severity, 'danger');
+
+  // Enzyme 45 minutes after KMS -> safe
+  const enzymeSafe = evaluateChemicalAdditionCompatibility({
+    selectedCompound: 'enzyme',
+    recentAdditions: [
+      {
+        compoundType: 'kms',
+        createdAt: '2026-10-01T11:30:00.000Z'
+      }
+    ],
+    currentSG: 1.092,
+    nowMs
+  });
+  assert.equal(enzymeSafe.hasConflict, false);
+
+  // 2. Ascorbic acid when Free SO2 < 30 mg/L -> danger conflict
+  const ascorbicConflict = evaluateChemicalAdditionCompatibility({
+    selectedCompound: 'ascorbic',
+    recentAdditions: [],
+    currentSG: 0.994,
+    currentFreeSO2MgL: 18,
+    nowMs
+  });
+  assert.equal(ascorbicConflict.hasConflict, true);
+  assert.equal(ascorbicConflict.severity, 'danger');
+
+  // Ascorbic acid when Free SO2 >= 30 mg/L -> safe
+  const ascorbicSafe = evaluateChemicalAdditionCompatibility({
+    selectedCompound: 'ascorbic',
+    recentAdditions: [],
+    currentSG: 0.994,
+    currentFreeSO2MgL: 38,
+    nowMs
+  });
+  assert.equal(ascorbicSafe.hasConflict, false);
+
+  // 3. DAP below 1/3 sugar ceiling (1.055 < 1.062) -> warning conflict
+  const dapConflict = evaluateChemicalAdditionCompatibility({
+    selectedCompound: 'dap',
+    recentAdditions: [],
+    currentSG: 1.055,
+    oneThirdSugarCeilingSG: 1.062,
+    nowMs
+  });
+  assert.equal(dapConflict.hasConflict, true);
+  assert.equal(dapConflict.severity, 'warning');
+});
+
 

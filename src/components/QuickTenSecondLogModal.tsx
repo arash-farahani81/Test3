@@ -27,6 +27,7 @@ import { enologyDb } from '../db/enologyDatabase.ts';
 import {
   calculateRefractometerCorrection,
   correctHydrometer,
+  evaluateChemicalAdditionCompatibility,
   normalizeEnologyNumericInput
 } from '../utils/enologyUtils.ts';
 import {
@@ -707,6 +708,26 @@ export const QuickTenSecondLogModal: React.FC<QuickTenSecondLogModalProps> = ({
     return val !== null && val > 0 ? val : null;
   }, [rawAdditionAmount]);
 
+  const incompatibilityAlert = useMemo(
+    () =>
+      evaluateChemicalAdditionCompatibility({
+        selectedCompound: selectedCompoundType,
+        recentAdditions: enologyDb.getAdditions(tankId, false, activeBatch?.id),
+        currentSG: latestRealOrBenchLog?.sg ?? lastSG,
+        oneThirdSugarCeilingSG: batchPlan.triggers.oneThirdCeiling,
+        currentFreeSO2MgL: latestRealOrBenchLog?.freeSO2 ?? null
+      }),
+    [
+      selectedCompoundType,
+      tankId,
+      activeBatch?.id,
+      latestRealOrBenchLog,
+      lastSG,
+      batchPlan.triggers.oneThirdCeiling,
+      postSaveSummary
+    ]
+  );
+
   // Lab Preset & Safe Empty Validation
   const currentLabPreset = useMemo(
     () =>
@@ -1041,7 +1062,7 @@ export const QuickTenSecondLogModal: React.FC<QuickTenSecondLogModalProps> = ({
       enologyDb.softDeleteAddition(addId);
     }
     for (const labId of postSaveSummary.createdLabIds) {
-      enologyDb.deleteLabAnalysis(labId);
+      enologyDb.softDeleteLabAnalysis(labId);
     }
     setPostSaveSummary(null);
     notifyDataChanged();
@@ -1065,7 +1086,9 @@ export const QuickTenSecondLogModal: React.FC<QuickTenSecondLogModalProps> = ({
   const contentCard = (
     <div
       className={`bg-surface text-ink border border-line rounded-2xl shadow-2xl overflow-hidden font-['Vazirmatn',sans-serif] ${
-        inlineMode ? 'w-full' : 'w-full max-w-xl max-h-[92vh] overflow-y-auto'
+        inlineMode
+          ? 'w-full'
+          : 'w-full max-w-xl max-h-[92vh] overflow-y-auto animate-sheet-up'
       }`}
     >
       {/* Header */}
@@ -1133,7 +1156,7 @@ export const QuickTenSecondLogModal: React.FC<QuickTenSecondLogModalProps> = ({
       {/* Body: Either Post-Save Summary Sheet OR Active Mode Form */}
       {postSaveSummary ? (
         <div className="p-4 sm:p-5 space-y-4">
-          <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 space-y-3">
+          <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 space-y-3 animate-spring-pop">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2 text-emerald-900 font-bold text-sm">
                 <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" />
@@ -1765,7 +1788,7 @@ export const QuickTenSecondLogModal: React.FC<QuickTenSecondLogModalProps> = ({
 
                   {/* Smart Real-Time Typo & Transposition Shield Banner */}
                   {typoShieldAlert && (
-                    <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 p-3 text-xs text-ink space-y-2">
+                    <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 p-3 text-xs text-ink space-y-2 animate-spring-pop">
                       <div className="flex items-center gap-2 font-bold text-warn">
                         <AlertTriangle className="w-4 h-4 shrink-0" />
                         <span>{typoShieldAlert.titleFa}</span>
@@ -1854,6 +1877,53 @@ export const QuickTenSecondLogModal: React.FC<QuickTenSecondLogModalProps> = ({
                       }}
                       className="flex-1 min-h-[48px] bg-surface border border-line rounded-xl px-2 text-center text-base font-mono font-bold text-ink"
                     />
+                    {(() => {
+                      const clampedT = Math.min(40, Math.max(10, tempCap));
+                      const fillH = Math.round(((clampedT - 10) / 30) * 34);
+                      const fillY = 42 - fillH;
+                      const colColor =
+                        tempCap > 30
+                          ? '#dc2626'
+                          : tempCap >= 26 && tempCap <= 29
+                          ? '#059669'
+                          : '#0284c7';
+                      return (
+                        <svg
+                          data-testid="cap-temp-thermometer-svg"
+                          viewBox="0 0 28 56"
+                          className="w-7 h-12 shrink-0"
+                          aria-hidden="true"
+                        >
+                          <rect
+                            x={10}
+                            y={6}
+                            width={8}
+                            height={38}
+                            rx={4}
+                            fill="#f5f5f4"
+                            stroke="#d6d3d1"
+                            strokeWidth={1.2}
+                          />
+                          <rect
+                            x={11.5}
+                            y={fillY}
+                            width={5}
+                            height={Math.max(4, fillH)}
+                            rx={2.5}
+                            fill={colColor}
+                            className="transition-all duration-200"
+                          />
+                          <circle
+                            cx={14}
+                            cy={46}
+                            r={6.5}
+                            fill={colColor}
+                            stroke="#ffffff"
+                            strokeWidth={1.2}
+                          />
+                        </svg>
+                      );
+                    })()}
                     <button
                       type="button"
                       onClick={() =>
@@ -2340,6 +2410,28 @@ export const QuickTenSecondLogModal: React.FC<QuickTenSecondLogModalProps> = ({
                       </div>
                     );
                   })()}
+
+                  {incompatibilityAlert.hasConflict && (
+                    <div
+                      data-testid="chemical-incompatibility-interlock-banner"
+                      className={`rounded-xl border p-3 text-xs space-y-1 animate-spring-pop ${
+                        incompatibilityAlert.severity === 'danger'
+                          ? 'bg-rose-50 border-rose-300 text-rose-950'
+                          : 'bg-amber-50 border-amber-300 text-amber-950'
+                      }`}
+                    >
+                      <div className="font-bold flex items-center gap-1.5">
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                        <span>{incompatibilityAlert.titleFa}</span>
+                      </div>
+                      <p className="leading-relaxed">
+                        {incompatibilityAlert.reasonFa}
+                      </p>
+                      <p className="font-bold">
+                        {incompatibilityAlert.waitRecommendationFa}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">

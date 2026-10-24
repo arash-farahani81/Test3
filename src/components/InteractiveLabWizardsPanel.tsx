@@ -547,6 +547,61 @@ export const InteractiveLabWizardsPanel: React.FC<
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>ریست</span>
                   </button>
+
+                  <svg
+                    data-testid="ripper-titration-flask-svg"
+                    viewBox="0 0 120 84"
+                    className="w-28 h-20 shrink-0"
+                    aria-hidden="true"
+                  >
+                    <circle
+                      cx={32}
+                      cy={42}
+                      r={24}
+                      fill="none"
+                      stroke="#e7e5e4"
+                      strokeWidth={4}
+                    />
+                    <circle
+                      cx={32}
+                      cy={42}
+                      r={24}
+                      fill="none"
+                      stroke={ripperTimerSec === 0 ? '#059669' : '#7f1d1d'}
+                      strokeWidth={4}
+                      strokeLinecap="round"
+                      strokeDasharray={150.8}
+                      strokeDashoffset={
+                        Math.round(150.8 * (ripperTimerSec / 15) * 10) / 10
+                      }
+                      transform="rotate(-90 32 42)"
+                      className="transition-all duration-300"
+                    />
+                    <text
+                      x={32}
+                      y={46}
+                      textAnchor="middle"
+                      className="text-xs font-mono font-bold fill-stone-800"
+                    >
+                      {ripperTimerSec}s
+                    </text>
+                    <path
+                      d="M 78 16 L 90 16 L 90 30 L 106 64 Q 108 70 101 70 L 67 70 Q 60 70 62 64 L 78 30 Z"
+                      fill="none"
+                      stroke="#57534e"
+                      strokeWidth={2}
+                    />
+                    <path
+                      d="M 71 46 L 97 46 L 104 64 Q 105 68 100 68 L 68 68 Q 63 68 64 64 Z"
+                      fill={
+                        ripperTimerSec === 0 || ripperTimerRunning
+                          ? '#1e3a8a'
+                          : '#9f1239'
+                      }
+                      fillOpacity={0.82}
+                      className="transition-all duration-500"
+                    />
+                  </svg>
                 </div>
               </div>
             </div>
@@ -820,8 +875,29 @@ export const InteractiveLabWizardsPanel: React.FC<
                   +0.1
                 </button>
               </div>
-              <div className="bg-surface border border-line rounded-xl p-3 font-bold text-emerald-800">
-                اسیدیته قابل تیتراسیون محاسبه‌شده: TA = {calculatedTA} g/L (معادل اسید تارتاریک)
+              <div className="bg-surface border border-line rounded-xl p-3 font-bold text-emerald-800 flex items-center justify-between gap-3">
+                <span>
+                  اسیدیته قابل تیتراسیون محاسبه‌شده: TA = {calculatedTA} g/L (معادل اسید تارتاریک)
+                </span>
+                <svg
+                  data-testid="ta-titration-flask-svg"
+                  viewBox="0 0 64 64"
+                  className="w-12 h-12 shrink-0"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M 26 10 L 38 10 L 38 22 L 52 52 Q 54 56 49 56 L 15 56 Q 10 56 12 52 L 26 22 Z"
+                    fill="none"
+                    stroke="#57534e"
+                    strokeWidth={2}
+                  />
+                  <path
+                    d="M 19 36 L 45 36 L 51 51 Q 52 54 48 54 L 16 54 Q 12 54 13 51 Z"
+                    fill={naohMl >= 3.5 ? '#be185d' : '#881337'}
+                    fillOpacity={0.8}
+                    className="transition-all duration-300"
+                  />
+                </svg>
               </div>
               <button
                 type="button"
@@ -897,6 +973,56 @@ export const InteractiveLabWizardsPanel: React.FC<
                     {label}
                   </button>
                 ))}
+              </div>
+              <div className="bg-surface border border-line rounded-xl p-3 flex items-center justify-between gap-3">
+                <div className="text-xs text-ink-soft space-y-1">
+                  <div className="font-bold text-ink">
+                    نمای شماتیک کاغذ کروماتوگرافی (Rf تارتاریک، مالیک، لاکتیک):
+                  </div>
+                  <div>
+                    ردیف پایین: اسید تارتاریک (Rf=0.25) • ردیف میانی: اسید مالیک (Rf=0.50) • ردیف بالا: اسید لاکتیک (Rf=0.75)
+                  </div>
+                </div>
+                <svg
+                  data-testid="mlf-chromatography-sheet-svg"
+                  viewBox="0 0 120 84"
+                  className="w-28 h-20 shrink-0 rounded-lg border border-line"
+                  aria-hidden="true"
+                >
+                  <rect x={0} y={0} width={120} height={84} fill="#1e3a8a" />
+                  <line
+                    x1={10}
+                    y1={70}
+                    x2={110}
+                    y2={70}
+                    stroke="#93c5fd"
+                    strokeWidth={1}
+                    strokeDasharray="2 2"
+                  />
+                  {/* Lane 1: Standard Malic (Rf 0.50 -> y=44) */}
+                  <circle cx={30} cy={44} r={6} fill="#facc15" />
+                  {/* Lane 2: Standard Lactic (Rf 0.75 -> y=24) */}
+                  <circle cx={60} cy={24} r={6} fill="#facc15" />
+                  {/* Lane 3: Wine Sample (Tartaric y=58, Malic y=44, Lactic y=24) */}
+                  <circle cx={90} cy={58} r={5.5} fill="#facc15" />
+                  {malicResult !== 'depleted' && (
+                    <circle
+                      cx={90}
+                      cy={44}
+                      r={malicResult === 'partial' ? 3.5 : 6}
+                      fill="#facc15"
+                      fillOpacity={malicResult === 'partial' ? 0.55 : 0.95}
+                    />
+                  )}
+                  {malicResult !== 'present' && (
+                    <circle
+                      cx={90}
+                      cy={24}
+                      r={malicResult === 'depleted' ? 6 : 4}
+                      fill="#facc15"
+                    />
+                  )}
+                </svg>
               </div>
               <button
                 type="button"

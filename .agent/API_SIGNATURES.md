@@ -51,6 +51,14 @@ export function calculateStagedH2O2Plan(volumeL: number, currentSO2: number, tar
   totalTheoretical3PercentMl: number; maxCurrentStep3PercentMl: number; recommendedSafeTrialStep1Ml: number;
   dilutedUnder1PercentTotalVolumeMl: number; stagesRequired: number; requiresReMeasurementBeforeNextStage: true;
 };
+export interface ChemicalIncompatibilityResult {
+  hasConflict: boolean; severity: 'danger' | 'warning' | 'none'; titleFa: string; reasonFa: string; waitRecommendationFa: string;
+}
+export function evaluateChemicalAdditionCompatibility(params: {
+  selectedCompound: StructuredCompoundType;
+  recentAdditions: Array<{ compoundType?: StructuredCompoundType; createdAt?: string; dateTime?: string }>;
+  currentSG: number; oneThirdSugarCeilingSG?: number; currentFreeSO2MgL?: number | null; nowMs?: number;
+}): ChemicalIncompatibilityResult;
 ```
 
 ## 2. `src/utils/trackingCalculations.ts`
@@ -66,6 +74,13 @@ export function compareRealLogsWithBenchmark(realLogs: FermentationLogEntry[], b
 export function calculateRecentLogVelocity(sortedLogs: FermentationLogEntry[], initialSGOverride?: number): { recentVelocityPerDay: number; hasObservedVelocity: boolean; referenceSG: number };
 export function calculateVelocity(logs: FermentationLogEntry[]): number;
 export function predictFermentationCompletion(logs: FermentationLogEntry[], tankId?: TankId, targetSGOverride?: number, tempOverride?: number, initialSGOverride?: number): FermentationPredictionResult;
+export function computeWallClockTimerDeltaSec(lastTickWallClockMs: number | undefined, nowMs: number, isRunning: boolean): number;
+export interface VelocityVectorArrowMetrics {
+  dx: number; dy: number; angleDeg: number; speedCategory: 'fast' | 'steady' | 'slow_or_stalled'; strokeColor: string; labelFa: string;
+}
+export function computeVelocityVectorArrowMetrics(params: {
+  prevX: number; prevY: number; currX: number; currY: number; dailySgDrop: number;
+}): VelocityVectorArrowMetrics;
 ```
 
 ## 3. `src/utils/enologyTroubleshooting.ts`
@@ -242,6 +257,12 @@ export function evaluateBottlingReadinessGate(options: {
   manualConfirmations?: { clarityConfirmed?: boolean; coldStabConfirmedOrSkipped?: boolean; warmTestPassed?: boolean; sanitationConfirmed?: boolean; malicRiskAccepted?: boolean; clinitestPassed?: boolean; rsConfirmed?: boolean };
   riskOverrideReason?: string; nowMs?: number; equipmentProfile?: RightNowEquipmentProfileInput;
 }): BottlingReadinessResult;
+export interface HeroWindowArcMetrics {
+  progressPct: number; isInSweetSpot: boolean; strokeDasharray: string; strokeDashoffset: number; needleAngleDeg: number; arcColorHex: string;
+}
+export function computeHeroWindowArcMetrics(params: {
+  currentSG: number; triggerSG?: number; windowCloseSG?: number; radius?: number;
+}): HeroWindowArcMetrics;
 ```
 
 ## 7. `src/context/EnologyUiContext.tsx`

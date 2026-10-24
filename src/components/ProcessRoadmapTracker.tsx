@@ -208,6 +208,26 @@ export function getGlobalActiveTimersSnapshot(params: {
     });
 }
 
+export function computeWallClockTimerDeltaSec(
+  nowMs: number,
+  lastSyncMs?: number | null
+): number {
+  if (!lastSyncMs || !Number.isFinite(lastSyncMs) || lastSyncMs <= 0) {
+    return 1;
+  }
+  const diffMs = Math.max(0, nowMs - lastSyncMs);
+  if (diffMs <= 1000) return 1;
+  return Math.max(1, Math.min(86400, Math.round(diffMs / 1000)));
+}
+
+const STEP_PREREQUISITE_MAP: Record<number, { reqStepId: number; labelFa: string }> = {
+  8: { reqStepId: 2, labelFa: 'پیش‌نیاز: گام ۲ (کدورت‌زدایی و آنزیم)' },
+  13: { reqStepId: 12, labelFa: 'پیش‌نیاز: گام ۱۲ (تست SG در ۱/۳ قند)' },
+  21: { reqStepId: 18, labelFa: 'پیش‌نیاز: گام ۱۸ (پایان تخمیر الکلی)' },
+  27: { reqStepId: 22, labelFa: 'پیش‌نیاز: گام ۲۲ (تست ریپر پس از پرس)' },
+  44: { reqStepId: 43, labelFa: 'پیش‌نیاز: گام ۴۳ (تأیید نهایی SO₂ آزاد پیش از بطری)' }
+};
+
 function playTimerCompletionChime() {
   try {
     if (typeof window === 'undefined') return;
@@ -425,12 +445,23 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
     if (!anyRunning) return;
 
     const interval = setInterval(() => {
+      const nowMs = Date.now();
+      let lastSyncMs: number | null = null;
+      try {
+        const rawSync = localStorage.getItem('enology_timer_last_sync_ms_v1');
+        if (rawSync) lastSyncMs = Number(rawSync);
+        localStorage.setItem('enology_timer_last_sync_ms_v1', String(nowMs));
+      } catch {
+        // Ignore storage errors
+      }
+      const deltaSec = computeWallClockTimerDeltaSec(nowMs, lastSyncMs);
+
       setTimerElapsed((prevElapsed) => {
         const nextElapsed = { ...prevElapsed };
         allTimers.forEach((t) => {
           if (timerRunning[t.id]) {
             const current = nextElapsed[t.id] || 0;
-            const updated = current + 1;
+            const updated = current + deltaSec;
             nextElapsed[t.id] = updated;
 
             if (t.mode === 'countdown') {
@@ -450,6 +481,11 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
   }, [timerRunning, timerDurations, timerChimed, customTimers]);
 
   const toggleTimerRun = (timerId: string) => {
+    try {
+      localStorage.setItem('enology_timer_last_sync_ms_v1', String(Date.now()));
+    } catch {
+      // Ignore storage errors
+    }
     setTimerRunning((prev) => ({ ...prev, [timerId]: !prev[timerId] }));
   };
 
@@ -1261,7 +1297,7 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
                 key={stage.stageIndex}
                 type="button"
                 onClick={() => setFilterPhase(stage.primaryPhaseId)}
-                className={`p-3 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between gap-2 relative ${
+                className={`p-3 rounded-xl border text-right transition-spring cursor-pointer flex flex-col justify-between gap-2 relative ${
                   isStageActive
                     ? 'bg-paper border-wine ring-1 ring-wine/30 shadow-xs'
                     : isStageCompleted
@@ -1270,11 +1306,14 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
                 }`}
               >
                 <div className="flex items-center justify-between gap-1.5">
-                  <span className="text-xs font-bold text-ink flex items-center gap-1">
+                  <span className="text-xs font-bold text-ink flex items-center gap-1.5">
                     {isStageCompleted ? (
                       <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
                     ) : isStageActive ? (
-                      <PlayCircle className="w-4 h-4 text-wine shrink-0" />
+                      <>
+                        <PlayCircle className="w-4 h-4 text-wine shrink-0" />
+                        <span className="w-2 h-2 rounded-full bg-wine animate-halo-pulse shrink-0" />
+                      </>
                     ) : (
                       <Circle className="w-4 h-4 text-ink-soft shrink-0" />
                     )}
@@ -1289,7 +1328,7 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
                 </p>
                 <div className="w-full h-1.5 bg-line rounded-full overflow-hidden">
                   <div
-                    className={`h-full transition-all ${
+                    className={`h-1.5 rounded-full transition-spring ${
                       isStageCompleted
                         ? 'bg-emerald-700'
                         : isStageActive
@@ -1545,8 +1584,50 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
                     </div>
 
                     <div className="space-y-2 pt-1">
-                      {/* Timer Display */}
-                      <div className="flex items-baseline justify-between bg-surface p-2 rounded-lg border border-line">
+                      {/* Timer Display with Circular Countdown SVG Ring (Idea #178) */}
+                      <div className="flex items-center justify-between gap-2 bg-surface p-2 rounded-lg border border-line">
+                        {(() => {
+                          const ringCircumference = 56.55; // 2 * Math.PI * 9
+                          const ringProgress = isStopwatch
+                            ? (elapsed % 60) / 60
+                            : Math.max(0, Math.min(1, remaining / Math.max(1, duration)));
+                          const ringDashOffset = ringCircumference * (1 - ringProgress);
+                          return (
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="w-6 h-6 shrink-0 -rotate-90"
+                              aria-hidden="true"
+                            >
+                              <circle
+                                cx="12"
+                                cy="12"
+                                r="9"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                className="text-line"
+                              />
+                              <circle
+                                cx="12"
+                                cy="12"
+                                r="9"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                strokeDasharray={ringCircumference}
+                                strokeDashoffset={ringDashOffset}
+                                className={`transition-spring ${
+                                  isOvertime
+                                    ? 'text-danger'
+                                    : isRunning
+                                    ? 'text-wine'
+                                    : 'text-ink-soft'
+                                }`}
+                              />
+                            </svg>
+                          );
+                        })()}
                         {isStopwatch ? (
                           <div className="flex items-center justify-between w-full">
                             <span className="text-xs text-ink-soft">زمان صرف‌شده (کرنومتر):</span>
@@ -2299,6 +2380,23 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
                           غیرفعال در پروفایل شما (تولید ۱۰۰٪ شراب قرمز بدون سانیه)
                         </span>
                       )}
+                      {(() => {
+                        const prereq = STEP_PREREQUISITE_MAP[stepNum];
+                        if (!prereq) return null;
+                        const prereqMet = completedSteps.includes(prereq.reqStepId);
+                        return (
+                          <span
+                            data-testid={`step-prereq-badge-${stepNum}`}
+                            className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                              prereqMet
+                                ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                                : 'bg-amber-50 text-warn border-amber-300'
+                            }`}
+                          >
+                            {prereq.labelFa} {prereqMet ? '(تکمیل شده)' : '(انجام نشده)'}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <p className="text-xs text-ink-soft leading-relaxed">
                       موقعیت/تریگر: <strong className="text-ink">{step.timeOrTrigger}</strong> • دما: <strong className="text-ink">{step.targetTemp}</strong>

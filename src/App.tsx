@@ -192,11 +192,11 @@ function AppWorkspace() {
   if (cellarMode) {
     return (
       <div
-        className={`min-h-screen bg-slate-950 text-slate-50 text-lg flex flex-col font-['Vazirmatn',sans-serif] pb-20 md:pb-0 ${fontScaleRootClass}`}
+        className={`min-h-screen bg-slate-950 text-slate-50 text-lg flex flex-col font-['Vazirmatn',sans-serif] pb-20 md:pb-0 transition-colors duration-200 ${fontScaleRootClass}`}
       >
         {/* Persistent CO2 Asphyxiation Safety Warning Banner when SG > 1.000 */}
         {hasActiveFermentation && (
-          <div className="bg-rose-800 text-white px-4 py-3 border-b-2 border-rose-400 flex items-center justify-between gap-3 text-sm sm:text-base font-bold">
+          <div className="bg-rose-800 text-white px-4 py-3 border-b-2 border-rose-400 flex items-center justify-between gap-3 text-sm sm:text-base font-bold animate-fluid-enter">
             <div className="flex items-center gap-2.5">
               <AlertTriangle className="w-6 h-6 text-amber-300 shrink-0" />
               <span>
@@ -321,7 +321,7 @@ function AppWorkspace() {
 
   return (
     <div
-      className={`min-h-screen bg-paper text-ink flex flex-col font-['Vazirmatn',sans-serif] pb-20 md:pb-0 ${fontScaleRootClass}`}
+      className={`min-h-screen bg-paper text-ink flex flex-col font-['Vazirmatn',sans-serif] pb-20 md:pb-0 transition-colors duration-200 ${fontScaleRootClass}`}
     >
       {/* 5-Tab Winery Header & Mobile Bottom Nav */}
       <Header
@@ -355,6 +355,7 @@ function AppWorkspace() {
         key={dataRefreshTick}
         className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6"
       >
+        <div key={activeTab} className="animate-fluid-enter">
         {/* Tab 1: «امروز» (Today Landing View) */}
         {activeTab === 'today' && (
           <RightNowActionCenter
@@ -801,6 +802,7 @@ function AppWorkspace() {
             )}
           </div>
         )}
+        </div>
       </main>
 
       {/* Global Interactive Glossary Popover Modal */}

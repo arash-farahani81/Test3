@@ -68,6 +68,17 @@ describe('yeastStrainsData — 36-Strain Global Yeast Bioprocess Engine', () => 
     assert.ok(fx10Plan.fermaidO_1 < bm45Plan.fermaidO_1);
     assert.ok(fx10Plan.fermaidK_2 < bm45Plan.fermaidK_2);
     assert.ok(fx10Plan.dap_2 < bm45Plan.dap_2);
+
+    const rc212Plan = computeYeastAdjustedSnaPlan({
+      strainId: 'lalvin-rc-212',
+      volumeL: 132,
+      brix: 22.0,
+      initialSG: 1.092,
+      naturalYAN: 100
+    });
+    assert.equal(rc212Plan.fermaidO_1, 33);
+    assert.equal(rc212Plan.fermaidO_3, 39.6);
+    assert.equal(rc212Plan.zinc_2, 0.26);
   });
 
   it('predicts biological acidification for Level2 Laktia and malic degradation for 71B', () => {

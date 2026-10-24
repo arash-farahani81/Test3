@@ -15,7 +15,10 @@ import {
 } from './trackingCalculations.ts';
 import { isPersianLeapYear } from './persianDate.ts';
 import { computeVesselTwinState } from '../components/LivingTankVisualTwin.tsx';
-import { getGlobalActiveTimersSnapshot } from '../components/ProcessRoadmapTracker.tsx';
+import {
+  computeWallClockTimerDeltaSec,
+  getGlobalActiveTimersSnapshot
+} from '../components/ProcessRoadmapTracker.tsx';
 import {
   computeSensoryRadarPolygonPoints,
   buildVintagePassportSummary,
@@ -24,7 +27,8 @@ import {
 import { computeHydrometerCylinderMetrics } from '../components/QuickTenSecondLogModal.tsx';
 import {
   computeTimeMachineDaySnapshot,
-  computeSo2TrajectoryVector
+  computeSo2TrajectoryVector,
+  computeVelocityVectorArrowMetrics
 } from '../components/BandedFermentationChartAndSO2Panel.tsx';
 import type { FermentationLogEntry } from '../types/tracking.ts';
 import {
@@ -1294,6 +1298,87 @@ test('Audit Remediation Part 1: SG=0.988 progress clamp, 6-hour minimum velocity
   // 4. 33-year Khayyam leap cycle
   assert.equal(isPersianLeapYear(1403), true);
   assert.equal(isPersianLeapYear(1404), false);
+
+  // 5. Wall-clock timer persistence delta calculation
+  assert.equal(computeWallClockTimerDeltaSec(1_000_800, 1_000_000), 1);
+  assert.equal(computeWallClockTimerDeltaSec(2_800_000, 1_000_000), 1800);
+  assert.equal(computeWallClockTimerDeltaSec(1_000_000, null), 1);
+
+  // 6. Two-phase Headspace vs. Top-Up safety gauge (IDEA-08)
+  const activeFermTwin = computeVesselTwinState({
+    tankId: 'tank-a',
+    logs: [
+      {
+        id: 'hs-1',
+        tankId: 'tank-a',
+        dayNumber: 2,
+        dateTime: '۱۴۰۵/۰۷/۲۶',
+        stageTitle: 'روز ۲',
+        brix: 17.0,
+        sg: 1.070,
+        tempCap: 24.0,
+        tempRoom: 21.0,
+        ph: 3.52,
+        pigeageDone: true
+      }
+    ]
+  });
+  assert.ok(activeFermTwin.headspacePct >= 15);
+  assert.equal(activeFermTwin.headspaceSafetyStatus, 'safe');
+  assert.ok(activeFermTwin.headspaceSafetyBadgeFa.includes('حاشیه ایمن کلاهک'));
+
+  const postPressTwin = computeVesselTwinState({
+    tankId: 'tank-a',
+    logs: [
+      {
+        id: 'hs-2',
+        tankId: 'tank-a',
+        dayNumber: 12,
+        dateTime: '۱۴۰۵/۰۸/۰۶',
+        stageTitle: 'روز ۱۲',
+        brix: 0,
+        sg: 0.992,
+        tempCap: 18.0,
+        tempRoom: 17.0,
+        ph: 3.52,
+        pigeageDone: false
+      }
+    ]
+  });
+  assert.equal(postPressTwin.headspacePct, 0);
+  assert.equal(postPressTwin.headspaceSafetyStatus, 'safe');
+  assert.equal(postPressTwin.headspaceSafetyBadgeFa, 'گلوگاه لببهلب (۰٪ هوا ✓)');
+
+  // 7. Fermentation Velocity Trend Vector Arrow (IDEA-14)
+  const fastArrow = computeVelocityVectorArrowMetrics({
+    velocityPerDay: 0.022,
+    currentSG: 1.060
+  });
+  assert.equal(fastArrow.angleDeg, 42);
+  assert.equal(fastArrow.colorHex, '#6e1f2f');
+
+  const normalArrow = computeVelocityVectorArrowMetrics({
+    velocityPerDay: 0.012,
+    currentSG: 1.050
+  });
+  assert.equal(normalArrow.angleDeg, 26);
+  assert.equal(normalArrow.colorHex, '#3f6b4a');
+
+  const slowDangerArrow = computeVelocityVectorArrowMetrics({
+    velocityPerDay: 0.001,
+    currentSG: 1.040
+  });
+  assert.equal(slowDangerArrow.angleDeg, 2);
+  assert.equal(slowDangerArrow.colorHex, '#b3261e');
+
+  const dryArrow = computeVelocityVectorArrowMetrics({
+    velocityPerDay: 0.005,
+    currentSG: 0.992
+  });
+  assert.equal(dryArrow.angleDeg, 0);
+  assert.equal(dryArrow.statusLabelFa, 'تثبیت خشکی کامل');
 });
+
+
 
 

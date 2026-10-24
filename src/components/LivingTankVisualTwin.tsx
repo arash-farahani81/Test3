@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Activity, Check, Droplets, Thermometer } from 'lucide-react';
 import type {
   CellarEquipmentProfile,
@@ -56,6 +56,9 @@ export interface VesselTwinState {
   yeastStrainNameFa: string;
   yeastTempOptRangeFa: string;
   yeastYanDemandFa: string;
+  headspacePct: number;
+  headspaceSafetyStatus: 'safe' | 'warning' | 'danger';
+  headspaceSafetyBadgeFa: string;
 }
 
 export function computeVesselTwinState(params: {
@@ -292,6 +295,29 @@ export function computeVesselTwinState(params: {
       ? 'پوشش یخ خشک'
       : 'لببهلب (Top-up / تیله شیشهای)';
 
+  const isPostPressOrDry = isRose
+    ? currentSG <= 1.000
+    : currentSG <= plan.triggers.pressingSG;
+  let headspacePct: number;
+  let headspaceSafetyStatus: 'safe' | 'warning' | 'danger';
+  let headspaceSafetyBadgeFa: string;
+  if (isPostPressOrDry) {
+    headspacePct = 0;
+    headspaceSafetyStatus = 'safe';
+    headspaceSafetyBadgeFa = 'گلوگاه لببهلب (۰٪ هوا \u2713)';
+  } else {
+    headspacePct = Math.max(
+      5,
+      Math.round((1 - grossVolumeL / maxCapacityL) * 100)
+    );
+    headspaceSafetyStatus =
+      headspacePct < 10 ? 'danger' : headspacePct < 15 ? 'warning' : 'safe';
+    headspaceSafetyBadgeFa =
+      headspacePct < 15
+        ? `هشدار سرریز کف (${headspacePct}٪ خالی)`
+        : `حاشیه ایمن کلاهک (${headspacePct}٪ خالی)`;
+  }
+
   return {
     tankId: params.tankId,
     labelFa,
@@ -328,7 +354,10 @@ export function computeVesselTwinState(params: {
         ? 'کمنیاز N'
         : strain.yanDemandLevel === 'high'
         ? 'پرنیاز N'
-        : 'متوسط N'
+        : 'متوسط N',
+    headspacePct,
+    headspaceSafetyStatus,
+    headspaceSafetyBadgeFa
   };
 }
 
@@ -352,6 +381,15 @@ export const LivingTankVisualTwin: React.FC<{
   } = useEnologyUi();
   void equipmentCapabilities;
   const { plan } = useFlexibleProtocol();
+  const [punchingTankId, setPunchingTankId] = useState<TankId | null>(null);
+
+  const triggerPigeageSquash = (tId: TankId, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPunchingTankId(tId);
+    setTimeout(() => {
+      setPunchingTankId((prev) => (prev === tId ? null : prev));
+    }, 650);
+  };
 
   const effectivePlan = useMemo(
     () => getEffectiveProtocolPlanForBatch(activeBatch, plan),
@@ -503,6 +541,24 @@ export const LivingTankVisualTwin: React.FC<{
                     </linearGradient>
                   </defs>
 
+                  {/* Thermal Gradient Aura (Idea #054) */}
+                  {(vessel.tempAlert === 'warning' ||
+                    vessel.tempAlert === 'danger') && (
+                    <rect
+                      data-testid={`vessel-thermal-aura-${vessel.tankId}`}
+                      x="10"
+                      y="14"
+                      width="80"
+                      height="108"
+                      rx="10"
+                      fill={
+                        vessel.tempAlert === 'danger' ? '#b3261e' : '#a8661a'
+                      }
+                      fillOpacity="0.14"
+                      className="animate-halo-pulse"
+                    />
+                  )}
+
                   {/* Glass Airlock Bubbler & Lid Neck (Golden Idea 4) */}
                   <g data-testid="vessel-airlock-bubbler-svg">
                     <rect
@@ -551,25 +607,60 @@ export const LivingTankVisualTwin: React.FC<{
                       fill="#fbf9f4"
                     />
 
-                    {/* Liquid Layer with Sine-Wave Surface */}
-                    <path
-                      d={`M 16 ${liquidTopY} Q 33 ${
-                        liquidTopY - vessel.sineWaveAmplitudePx
-                      } 50 ${liquidTopY} T 84 ${liquidTopY} L 84 120 L 16 120 Z`}
-                      fill={`url(#${gradId})`}
-                    />
-                    <path
-                      d={`M 18 ${liquidTopY} Q 34 ${
-                        liquidTopY - vessel.sineWaveAmplitudePx
-                      } 50 ${liquidTopY} T 82 ${liquidTopY}`}
-                      fill="none"
-                      stroke={vessel.liquidHighlightHex}
-                      strokeWidth="1.5"
-                    />
+                    {/* Liquid Layer with Dual-Layer Parallax Sine-Wave Surface (Ideas #051 & #055) */}
+                    <g className="transition-spring">
+                      {vessel.sineWaveAmplitudePx > 0 && (
+                        <path
+                          d={`M 14 ${liquidTopY} Q 32 ${
+                            liquidTopY + vessel.sineWaveAmplitudePx
+                          } 50 ${liquidTopY} T 86 ${liquidTopY} L 86 120 L 14 120 Z`}
+                          fill={vessel.liquidHighlightHex}
+                          fillOpacity="0.38"
+                          className="animate-wave-drift"
+                        />
+                      )}
+                      <path
+                        d={`M 16 ${liquidTopY} Q 33 ${
+                          liquidTopY - vessel.sineWaveAmplitudePx
+                        } 50 ${liquidTopY} T 84 ${liquidTopY} L 84 120 L 16 120 Z`}
+                        fill={`url(#${gradId})`}
+                      />
+                      <path
+                        d={`M 18 ${liquidTopY} Q 34 ${
+                          liquidTopY - vessel.sineWaveAmplitudePx
+                        } 50 ${liquidTopY} T 82 ${liquidTopY}`}
+                        fill="none"
+                        stroke={vessel.liquidHighlightHex}
+                        strokeWidth="1.5"
+                      />
+                    </g>
 
-                    {/* Floating Pomace Cap Layer for Red Maceration */}
+                    {/* Stainless Floating-Lid Piston Line (Idea #052) */}
+                    {vessel.isStainlessSteel && (
+                      <line
+                        x1="18"
+                        y1={Math.max(20, liquidTopY - 2)}
+                        x2="82"
+                        y2={Math.max(20, liquidTopY - 2)}
+                        stroke="#475569"
+                        strokeWidth="2"
+                        strokeDasharray="5 2"
+                      />
+                    )}
+
+                    {/* Floating Pomace Cap Layer for Red Maceration (Idea #102 / IDEA-03) */}
                     {vessel.hasPomaceCap && (
-                      <g>
+                      <g
+                        data-testid={`vessel-pomace-cap-${vessel.tankId}`}
+                        className="transition-spring"
+                        style={{
+                          transform:
+                            punchingTankId === vessel.tankId
+                              ? 'translateY(12px) scaleY(0.75)'
+                              : 'translateY(0px) scaleY(1)',
+                          transformOrigin: '50px 50px'
+                        }}
+                      >
                         <rect
                           x="14"
                           y={liquidTopY}
@@ -599,7 +690,7 @@ export const LivingTankVisualTwin: React.FC<{
                       </g>
                     )}
 
-                    {/* Rising CO2 Bubbles proportional to dSG/dt */}
+                    {/* Rising CO2 Bubbles proportional to dSG/dt with Spiral Wobble (Idea #053) */}
                     {vessel.bubbleCount > 0 &&
                       BUBBLE_X_POSITIONS.slice(0, vessel.bubbleCount).map(
                         (bx, idx) => {
@@ -624,6 +715,12 @@ export const LivingTankVisualTwin: React.FC<{
                                 to={Math.max(vesselTopY + 6, endY)}
                                 dur={`${vessel.bubbleDurationSec}s`}
                                 begin={`${delaySec}s`}
+                                repeatCount="indefinite"
+                              />
+                              <animate
+                                attributeName="cx"
+                                values={`${bx};${bx + (idx % 2 === 0 ? 2.5 : -2.5)};${bx}`}
+                                dur={`${vessel.bubbleDurationSec}s`}
                                 repeatCount="indefinite"
                               />
                               <animate
@@ -714,6 +811,29 @@ export const LivingTankVisualTwin: React.FC<{
                 </div>
               </div>
 
+              <div
+                data-testid={`vessel-headspace-badge-${vessel.tankId}`}
+                className={`text-xs font-medium w-full truncate ${
+                  vessel.headspaceSafetyStatus === 'danger'
+                    ? 'text-danger'
+                    : vessel.headspaceSafetyStatus === 'warning'
+                    ? 'text-warn'
+                    : 'text-ok'
+                }`}
+              >
+                {vessel.headspaceSafetyBadgeFa}
+              </div>
+              {vessel.hasPomaceCap && !compact && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  data-testid={`vessel-pigeage-trigger-${vessel.tankId}`}
+                  onClick={(e) => triggerPigeageSquash(vessel.tankId, e)}
+                  className="inline-block mt-1 rounded-md border border-wine/40 bg-wine/10 px-2 py-0.5 text-xs font-medium text-wine hover:bg-wine hover:text-white transition-spring"
+                >
+                  تست غوطهوری کلاهک (پیژاژ)
+                </span>
+              )}
               <div
                 data-testid={`vessel-hardware-badge-${vessel.tankId}`}
                 className="text-xs text-ink-soft pt-1 border-t border-line w-full truncate"

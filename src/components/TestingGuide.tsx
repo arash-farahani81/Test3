@@ -4146,7 +4146,7 @@ export const TestingGuide: React.FC<TestingGuideProps> = ({
                 <button
                   type="button"
                   onClick={() => setTsH2S(!tsH2S)}
-                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition-all transition-spring cursor-pointer flex items-center justify-between gap-2 ${
                     tsH2S
                       ? 'bg-wine text-white border-wine shadow-xs'
                       : 'bg-surface text-ink border-line hover:bg-stone-200/50'
@@ -4161,7 +4161,7 @@ export const TestingGuide: React.FC<TestingGuideProps> = ({
                 <button
                   type="button"
                   onClick={() => setTsStuck(!tsStuck)}
-                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition-all transition-spring cursor-pointer flex items-center justify-between gap-2 ${
                     tsStuck
                       ? 'bg-wine text-white border-wine shadow-xs'
                       : 'bg-surface text-ink border-line hover:bg-stone-200/50'
@@ -4176,7 +4176,7 @@ export const TestingGuide: React.FC<TestingGuideProps> = ({
                 <button
                   type="button"
                   onClick={() => setTsVA(!tsVA)}
-                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition-all transition-spring cursor-pointer flex items-center justify-between gap-2 ${
                     tsVA
                       ? 'bg-wine text-white border-wine shadow-xs'
                       : 'bg-surface text-ink border-line hover:bg-stone-200/50'
@@ -4191,7 +4191,7 @@ export const TestingGuide: React.FC<TestingGuideProps> = ({
                 <button
                   type="button"
                   onClick={() => setTsDryCap(!tsDryCap)}
-                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition-all transition-spring cursor-pointer flex items-center justify-between gap-2 ${
                     tsDryCap
                       ? 'bg-wine text-white border-wine shadow-xs'
                       : 'bg-surface text-ink border-line hover:bg-stone-200/50'
@@ -4206,7 +4206,7 @@ export const TestingGuide: React.FC<TestingGuideProps> = ({
                 <button
                   type="button"
                   onClick={() => setTsBitterSeeds(!tsBitterSeeds)}
-                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition-all transition-spring cursor-pointer flex items-center justify-between gap-2 ${
                     tsBitterSeeds
                       ? 'bg-wine text-white border-wine shadow-xs'
                       : 'bg-surface text-ink border-line hover:bg-stone-200/50'
@@ -4221,7 +4221,7 @@ export const TestingGuide: React.FC<TestingGuideProps> = ({
                 <button
                   type="button"
                   onClick={() => setTsCloudy(!tsCloudy)}
-                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition-all transition-spring cursor-pointer flex items-center justify-between gap-2 ${
                     tsCloudy
                       ? 'bg-wine text-white border-wine shadow-xs'
                       : 'bg-surface text-ink border-line hover:bg-stone-200/50'

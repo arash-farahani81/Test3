@@ -180,10 +180,79 @@ export function computeSo2TrajectoryVector(params: {
   };
 }
 
+export interface VelocityVectorArrowMetrics {
+  velocityPerDay: number;
+  angleDeg: number;
+  colorHex: string;
+  statusLabelFa: string;
+}
+
+export function computeVelocityVectorArrowMetrics(params: {
+  velocityPerDay: number;
+  currentSG: number;
+}): VelocityVectorArrowMetrics {
+  const vel = Math.max(
+    0,
+    Math.round(
+      (Number.isFinite(params.velocityPerDay) ? params.velocityPerDay : 0) *
+        1000
+    ) / 1000
+  );
+  if (params.currentSG <= 0.995) {
+    return {
+      velocityPerDay: vel,
+      angleDeg: 0,
+      colorHex: '#3f6b4a',
+      statusLabelFa: 'تثبیت خشکی کامل'
+    };
+  }
+  if (vel >= 0.018) {
+    return {
+      velocityPerDay: vel,
+      angleDeg: 42,
+      colorHex: '#6e1f2f',
+      statusLabelFa: `شیب تند (${vel.toFixed(3)}/d)`
+    };
+  }
+  if (vel >= 0.008) {
+    return {
+      velocityPerDay: vel,
+      angleDeg: 26,
+      colorHex: '#3f6b4a',
+      statusLabelFa: `شیب بهینه (${vel.toFixed(3)}/d)`
+    };
+  }
+  if (vel >= 0.003) {
+    return {
+      velocityPerDay: vel,
+      angleDeg: 12,
+      colorHex: '#a8661a',
+      statusLabelFa: `شیب کند (${vel.toFixed(3)}/d)`
+    };
+  }
+  return {
+    velocityPerDay: vel,
+    angleDeg: 2,
+    colorHex: '#b3261e',
+    statusLabelFa: `خطر توقف (${vel.toFixed(3)}/d)`
+  };
+}
+
 export const BandedFermentationChartAndSO2Panel: React.FC<
   BandedFermentationChartAndSO2PanelProps
 > = ({ tankId, logs, additions, labAnalyses, onSelectMilestone }) => {
-  const { activeBatch, equipmentProfile, equipmentCapabilities, tankCount } = useEnologyUi();
+  const {
+    activeBatch,
+    activeBatchId,
+    equipmentProfile,
+    equipmentCapabilities,
+    tankCount,
+    getYeastStrainForTank
+  } = useEnologyUi();
+  const activeYeast = useMemo(
+    () => getYeastStrainForTank(tankId),
+    [getYeastStrainForTank, tankId]
+  );
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(
     null
   );
@@ -517,6 +586,40 @@ export const BandedFermentationChartAndSO2Panel: React.FC<
         .map((pt) => `${dayToX(pt.dayNumber).toFixed(1)},${sgToY(pt.sg).toFixed(1)}`)
         .join(' '),
     [activeSeriesLogs, maxDayOnAxis]
+  );
+
+  const realAreaPolygonPoints = useMemo(() => {
+    if (realLogs.length < 2) return '';
+    const firstX = dayToX(realLogs[0].dayNumber).toFixed(1);
+    const lastX = dayToX(realLogs[realLogs.length - 1].dayNumber).toFixed(1);
+    const bottomY = (svgHeight - padBottom).toFixed(1);
+    const topPts = realLogs
+      .map((pt) => `${dayToX(pt.dayNumber).toFixed(1)},${sgToY(pt.sg).toFixed(1)}`)
+      .join(' ');
+    return `${firstX},${bottomY} ${topPts} ${lastX},${bottomY}`;
+  }, [realLogs, maxDayOnAxis]);
+
+  const siblingPointsStr = useMemo(() => {
+    if (tankId === 'tank-rose' || tankCount !== 2) return '';
+    const siblingTankId: TankId = tankId === 'tank-a' ? 'tank-b' : 'tank-a';
+    const siblingLogs = sortFermentationLogs(
+      enologyDb
+        .getLogs(siblingTankId, false, activeBatchId || activeBatch?.id)
+        .filter((l) => !l.isBenchmark && !l.isDeleted)
+    );
+    if (siblingLogs.length < 2) return '';
+    return siblingLogs
+      .map((pt) => `${dayToX(pt.dayNumber).toFixed(1)},${sgToY(pt.sg).toFixed(1)}`)
+      .join(' ');
+  }, [tankId, tankCount, activeBatchId, activeBatch?.id, logs, maxDayOnAxis]);
+
+  const velocityArrow = useMemo(
+    () =>
+      computeVelocityVectorArrowMetrics({
+        velocityPerDay: velocityInfo.recentVelocityPerDay,
+        currentSG: latestLog?.sg ?? currentSG
+      }),
+    [velocityInfo.recentVelocityPerDay, latestLog?.sg, currentSG]
   );
 
   // Interpolate X position on active curve for each SG milestone
@@ -1101,6 +1204,12 @@ export const BandedFermentationChartAndSO2Panel: React.FC<
             role="img"
             aria-label="نمودار باند سلامت تخمیر و نشانگرهای تغذیه"
           >
+            <defs>
+              <linearGradient id="sg-viscosity-area-grad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#6e1f2f" stopOpacity="0.18" />
+                <stop offset="100%" stopColor="#6e1f2f" stopOpacity="0.0" />
+              </linearGradient>
+            </defs>
             {timeMachineDay !== null && (
               <line
                 x1={dayToX(activeTimeSnapshot.dayNumber)}
@@ -1159,6 +1268,20 @@ export const BandedFermentationChartAndSO2Panel: React.FC<
               />
             )}
 
+            {/* Sibling Red Tank Comparison Curve (IDEA-13) */}
+            {siblingPointsStr && (
+              <polyline
+                data-testid="sibling-tank-comparison-curve"
+                fill="none"
+                stroke="#a8661a"
+                strokeWidth="1.6"
+                strokeDasharray="3 3"
+                strokeOpacity="0.45"
+                points={siblingPointsStr}
+                className="transition-spring"
+              />
+            )}
+
             {/* 3. Prediction Fan (Cone of Uncertainty to Dryness) */}
             {latestLog && currentSG > 1.0 && (() => {
               const startX = dayToX(latestLog.dayNumber);
@@ -1194,6 +1317,14 @@ export const BandedFermentationChartAndSO2Panel: React.FC<
               );
             })()}
 
+            {/* Viscosity-Gradient Area Fill under Real SG Curve (#076 / IDEA-15) */}
+            {realAreaPolygonPoints && (
+              <polygon
+                points={realAreaPolygonPoints}
+                fill="url(#sg-viscosity-area-grad)"
+              />
+            )}
+
             {/* 4. Real SG Curve Polyline */}
             {realPolylinePoints && (
               <polyline
@@ -1203,6 +1334,33 @@ export const BandedFermentationChartAndSO2Panel: React.FC<
                 points={realPolylinePoints}
               />
             )}
+
+            {/* Velocity Trend Vector Arrow on Last Data Point (IDEA-14) */}
+            {latestLog && (() => {
+              const lastPointX = dayToX(latestLog.dayNumber);
+              const lastPointY = sgToY(latestLog.sg);
+              return (
+                <g
+                  data-testid="chart-velocity-vector-arrow-svg"
+                  transform={`translate(${lastPointX}, ${lastPointY}) rotate(${velocityArrow.angleDeg})`}
+                  className="transition-spring"
+                >
+                  <line
+                    x1="0"
+                    y1="0"
+                    x2="18"
+                    y2="0"
+                    stroke={velocityArrow.colorHex}
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                  />
+                  <polygon
+                    points="18,-4 25,0 18,4"
+                    fill={velocityArrow.colorHex}
+                  />
+                </g>
+              );
+            })()}
 
             {/* 5. Interactive Milestone Markers on Curve (/ ◯ / ) */}
             {sgMilestones.map((m) => {
@@ -1219,6 +1377,10 @@ export const BandedFermentationChartAndSO2Panel: React.FC<
                 ? '#d97706'
                 : '#1e293b';
               const symbol = isDone ? '+' : isMissedOrClosed ? '!' : '•';
+              const showHalo =
+                m.state === 'due' ||
+                m.state === 'missed' ||
+                selectedMilestoneId === m.id;
 
               return (
                 <g
@@ -1231,6 +1393,17 @@ export const BandedFermentationChartAndSO2Panel: React.FC<
                   }}
                   className="cursor-pointer"
                 >
+                  {showHalo && (
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r="13"
+                      fill="none"
+                      stroke={m.state === 'missed' ? '#a8661a' : '#6e1f2f'}
+                      strokeWidth="2"
+                      className="animate-halo-pulse"
+                    />
+                  )}
                   <circle
                     cx={cx}
                     cy={cy}
@@ -1278,7 +1451,7 @@ export const BandedFermentationChartAndSO2Panel: React.FC<
 
         {/* Clicked Milestone Detail Popover Card */}
         {selectedMilestone && (
-          <div className="bg-paper text-ink rounded-xl p-3 border border-line flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+          <div className="bg-paper text-ink rounded-xl p-3 border border-line flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs animate-spring-pop">
             <div className="space-y-1.5">
               <div className="flex items-center gap-2">
                 <span className="px-2 py-0.5 rounded bg-wine text-white font-bold text-xs">
@@ -1349,8 +1522,8 @@ export const BandedFermentationChartAndSO2Panel: React.FC<
                 const c = Math.max(tMin, Math.min(tMax, t));
                 return 10 + ((tMax - c) / (tMax - tMin)) * 68;
               };
-              const optHigh = isRose ? 18 : 28.5;
-              const optLow = isRose ? 16 : 20;
+              const optHigh = activeYeast.tempOptMaxC;
+              const optLow = activeYeast.tempOptMinC;
               const bandTop = tempToY(optHigh);
               const bandBottom = tempToY(optLow);
               const capPts = activeSeriesLogs
@@ -1373,11 +1546,13 @@ export const BandedFermentationChartAndSO2Panel: React.FC<
               return (
                 <g>
                   <rect
+                    data-testid="safe-temp-corridor-band"
                     x={padLeft}
                     y={bandTop}
                     width={plotW}
                     height={Math.max(4, bandBottom - bandTop)}
-                    fill="rgba(16, 185, 129, 0.14)"
+                    fill="#3f6b4a"
+                    fillOpacity="0.12"
                   />
                   <text
                     x={padLeft - 6}
@@ -1395,6 +1570,30 @@ export const BandedFermentationChartAndSO2Panel: React.FC<
                   >
                     {optLow}°
                   </text>
+                  {activeSeriesLogs.map((l, idx) => {
+                    const bx = dayToX(l.dayNumber) - 2.5;
+                    const by = tempToY(l.tempCap);
+                    const bh = Math.max(4, 78 - by);
+                    const barColor =
+                      l.tempCap > optHigh
+                        ? '#b3261e'
+                        : l.tempCap < optLow
+                        ? '#a8661a'
+                        : '#3f6b4a';
+                    return (
+                      <rect
+                        key={`${l.id}-${idx}`}
+                        x={bx}
+                        y={by}
+                        width="5"
+                        height={bh}
+                        rx="2.5"
+                        fill={barColor}
+                        fillOpacity="0.28"
+                        className="transition-spring"
+                      />
+                    );
+                  })}
                   {roomPts && (
                     <polyline
                       fill="none"

@@ -5,6 +5,7 @@ import {
   evaluateDeadlineCountdowns,
   evaluateBottlingReadinessGate
 } from './rightNowEngine.ts';
+import { computeHeroWindowArcMetrics } from '../components/RightNowActionCenter.tsx';
 import { INITIAL_TRACKING_DATA } from '../data/seedTrackingData.ts';
 import {
   computeDynamicProtocolPlan,
@@ -1505,6 +1506,44 @@ test('Critical Bugfix Audit Part 1: single-tank (tankCount === 1) full red batch
   assert.ok(pressingMilestone);
   assert.equal(pressingMilestone.tankRows[0].doseValue, '110');
 });
+
+test('computeHeroWindowArcMetrics: calculates semi-circular SVG arc ratio, dashOffset, and indicator coordinates at start, midpoint, and close', () => {
+  // 1. Start of milestone window
+  const startArc = computeHeroWindowArcMetrics({
+    currentSG: 1.072,
+    initialSG: 1.092,
+    triggerSG: 1.070,
+    windowCloseSG: 1.062
+  });
+  assert.equal(startArc.ratio, 0);
+  assert.equal(startArc.dashOffset, 78.5);
+  assert.equal(startArc.dotX, 9);
+  assert.equal(startArc.dotY, 32);
+
+  // 2. Midpoint of milestone window
+  const midArc = computeHeroWindowArcMetrics({
+    currentSG: 1.067,
+    initialSG: 1.092,
+    triggerSG: 1.070,
+    windowCloseSG: 1.062
+  });
+  assert.equal(midArc.ratio, 0.5);
+  assert.equal(midArc.dotX, 34);
+  assert.equal(midArc.dotY, 7);
+
+  // 3. Window close
+  const closeArc = computeHeroWindowArcMetrics({
+    currentSG: 1.062,
+    initialSG: 1.092,
+    triggerSG: 1.070,
+    windowCloseSG: 1.062
+  });
+  assert.equal(closeArc.ratio, 1);
+  assert.equal(closeArc.dashOffset, 0);
+  assert.equal(closeArc.dotX, 59);
+  assert.equal(closeArc.dotY, 32);
+});
+
 
 
 

@@ -1204,3 +1204,91 @@ export function computeGraduatedSyringeMetrics(
     majorTicks
   };
 }
+
+export interface ChemicalIncompatibilityResult {
+  hasConflict: boolean;
+  severity: 'danger' | 'warning' | 'none';
+  titleFa: string;
+  reasonFa: string;
+  waitRecommendationFa: string;
+}
+
+/**
+ * Station D6 (IDEA-34): Chemical Addition Incompatibility Interlock Engine.
+ * Evaluates whether the selected compound conflicts with recent tank additions or current fermentation state:
+ * 1. Enzyme (`enzyme`) within 30 minutes of a `kms` addition (SO2 denatures pectinase enzymes).
+ * 2. Ascorbic Acid (`ascorbic`) when Free SO2 < 30 mg/L (creates H2O2 pro-oxidative cascade without SO2 protection).
+ * 3. Inorganic Nitrogen (`dap`) when SG < one-third sugar depletion ceiling (default 1.062) (yeast cannot assimilate ammonium in alcohol, leaving residual PO4/NH4).
+ */
+export function evaluateChemicalAdditionCompatibility(params: {
+  selectedCompound: StructuredCompoundType;
+  recentAdditions: Array<{
+    compoundType?: StructuredCompoundType;
+    createdAt?: string;
+    dateTime?: string;
+  }>;
+  currentSG: number;
+  oneThirdSugarCeilingSG?: number;
+  currentFreeSO2MgL?: number | null;
+  nowMs?: number;
+}): ChemicalIncompatibilityResult {
+  const now = params.nowMs ?? Date.now();
+  const ceilingSG = params.oneThirdSugarCeilingSG ?? 1.062;
+
+  if (params.selectedCompound === 'enzyme') {
+    const recentKms = params.recentAdditions.find((a) => {
+      if (a.compoundType !== 'kms' || !a.createdAt) return false;
+      const t = Date.parse(a.createdAt);
+      if (!Number.isFinite(t)) return false;
+      const diffMinutes = (now - t) / 60000;
+      return diffMinutes >= 0 && diffMinutes < 30;
+    });
+    if (recentKms) {
+      return {
+        hasConflict: true,
+        severity: 'danger',
+        titleFa: 'تداخل شیمیایی: آنزیم پکتیناز و متابی‌سولفیت (KMS)',
+        reasonFa:
+          'سولفیت آزاد با غلظت موضعی بالا ساختار پروتئینی آنزیم پکتیناز را غیرفعال می‌کند.',
+        waitRecommendationFa:
+          'حداقل ۳۰ دقیقه پس از افزودن KMS و هم‌زدن کامل صبر کنید، سپس آنزیم را اضافه نمایید.'
+      };
+    }
+  }
+
+  if (params.selectedCompound === 'ascorbic') {
+    const freeSo2 = params.currentFreeSO2MgL;
+    if (freeSo2 === undefined || freeSo2 === null || freeSo2 < 30) {
+      return {
+        hasConflict: true,
+        severity: 'danger',
+        titleFa: 'خطر اکسیداسیون: اسید آسکوربیک بدون پشتوانه Free SO₂ کافی',
+        reasonFa:
+          'اسید آسکوربیک در واکنش با اکسیژن پراکسید هیدروژن (H₂O₂) تولید می‌کند که تنها در حضور Free SO₂ ≥ 30 mg/L خنثی می‌شود.',
+        waitRecommendationFa:
+          'ابتدا سطح سولفیت آزاد شراب را به بالای 30 mg/L برسانید و سپس اسید آسکوربیک اضافه کنید.'
+      };
+    }
+  }
+
+  if (params.selectedCompound === 'dap' && params.currentSG < ceilingSG) {
+    return {
+      hasConflict: true,
+      severity: 'warning',
+      titleFa: `عبور از سقف ۱/۳ قند (SG < ${ceilingSG.toFixed(3)}) برای DAP معدنی`,
+      reasonFa:
+        'در حضور الکل بالا، حامل‌های غشایی مخمر قادر به جذب یون آمونیوم (DAP) نیستند و فسفات/آمونیوم باقی‌مانده خطر فساد میکروبی دارد.',
+      waitRecommendationFa:
+        'به‌جای DAP معدنی، از نیتروژن ارگانیک (Fermaid O) استفاده کنید.'
+    };
+  }
+
+  return {
+    hasConflict: false,
+    severity: 'none',
+    titleFa: '',
+    reasonFa: '',
+    waitRecommendationFa: ''
+  };
+}
+

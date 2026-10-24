@@ -23,6 +23,7 @@ import {
 } from '../context/EnologyUiContext.tsx';
 import { useLocalStorageState } from '../utils/useLocalStorage.ts';
 import {
+  computeWallClockTimerDeltaSec,
   getGlobalActiveTimersSnapshot,
   type WorkshopTimerConfig
 } from './ProcessRoadmapTracker.tsx';
@@ -89,11 +90,22 @@ export const Header: React.FC<HeaderProps> = ({
     if (!hasRunning || currentTab === 'roadmap') return;
 
     const interval = setInterval(() => {
+      const nowMs = Date.now();
+      let lastSyncMs: number | null = null;
+      try {
+        const rawSync = localStorage.getItem('enology_timer_last_sync_ms_v1');
+        if (rawSync) lastSyncMs = Number(rawSync);
+        localStorage.setItem('enology_timer_last_sync_ms_v1', String(nowMs));
+      } catch {
+        // Ignore storage errors
+      }
+      const deltaSec = computeWallClockTimerDeltaSec(nowMs, lastSyncMs);
+
       setTimerElapsed((prev) => {
         const next = { ...prev };
         for (const [k, isRun] of Object.entries(timerRunning)) {
           if (isRun) {
-            next[k] = (next[k] || 0) + 1;
+            next[k] = (next[k] || 0) + deltaSec;
           }
         }
         return next;
@@ -489,13 +501,70 @@ export const Header: React.FC<HeaderProps> = ({
                     type="button"
                     onClick={() => setGlobalTankSelection(opt.id)}
                     title={opt.titleFa}
-                    className={`px-2.5 py-1 rounded-md text-xs transition-colors cursor-pointer ${
+                    className={`px-2.5 py-1 rounded-md text-xs transition-spring cursor-pointer inline-flex items-center gap-1 ${
                       isSelected
                         ? 'bg-wine text-white font-bold'
                         : 'text-ink-soft hover:text-ink font-medium'
                     }`}
                   >
-                    {opt.shortLabel}
+                    <svg
+                      viewBox="0 0 14 14"
+                      className="w-3.5 h-3.5 shrink-0"
+                      aria-hidden="true"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.3"
+                    >
+                      {opt.id === 'tank-rose' ? (
+                        <path
+                          d="M5.5 2h3v2.5l2.5 3v4.5a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1V7.5l2.5-3V2z"
+                          fill="currentColor"
+                          fillOpacity="0.2"
+                        />
+                      ) : opt.id === 'both-red' ? (
+                        <>
+                          <rect
+                            x="1.5"
+                            y="3"
+                            width="4.5"
+                            height="9"
+                            rx="1"
+                            fill="currentColor"
+                            fillOpacity="0.2"
+                          />
+                          <rect
+                            x="8"
+                            y="3"
+                            width="4.5"
+                            height="9"
+                            rx="1"
+                            fill="currentColor"
+                            fillOpacity="0.2"
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <rect
+                            x="3"
+                            y="2"
+                            width="8"
+                            height="10"
+                            rx="1.5"
+                          />
+                          <rect
+                            x="3.5"
+                            y="6"
+                            width="7"
+                            height="5.5"
+                            rx="1"
+                            fill="currentColor"
+                            fillOpacity="0.25"
+                            stroke="none"
+                          />
+                        </>
+                      )}
+                    </svg>
+                    <span>{opt.shortLabel}</span>
                   </button>
                 );
               })}
@@ -513,7 +582,7 @@ export const Header: React.FC<HeaderProps> = ({
                     key={tab.id}
                     type="button"
                     onClick={() => handleSelectTab(tab.id)}
-                    className={`px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer flex items-center gap-1.5 ${
+                    className={`px-3 py-1.5 rounded-md text-xs transition-spring cursor-pointer flex items-center gap-1.5 ${
                       isActive
                         ? 'bg-wine text-white font-bold'
                         : 'text-ink-soft hover:text-ink font-medium'
@@ -566,7 +635,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
 
                 {showBackupPopover && (
-                  <div className="absolute left-0 mt-2 w-72 bg-surface border border-line rounded-xl p-3.5 shadow-lg z-50 text-xs space-y-2.5 text-ink">
+                  <div className="absolute left-0 mt-2 w-72 bg-surface border border-line rounded-xl p-3.5 shadow-lg z-50 text-xs space-y-2.5 text-ink animate-spring-pop">
                     <div className="font-bold text-ink flex items-center justify-between">
                       <span>وضعیت حفاظت و پشتیبان داده</span>
                       <button
@@ -606,9 +675,20 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             )}
 
-            {/* Global Floating Timer Pill (Idea 3) */}
+            {/* Global Floating Timer Pill (Idea 3 & Idea #003) */}
             {activeTimers.length > 0 && (() => {
               const primaryTimer = activeTimers[0];
+              const progressRatio =
+                primaryTimer.totalDurationSec > 0
+                  ? Math.max(
+                      0,
+                      Math.min(
+                        1,
+                        primaryTimer.remainingSec / primaryTimer.totalDurationSec
+                      )
+                    )
+                  : 0;
+              const dashOffset = 44 * (1 - progressRatio);
               return (
                 <button
                   type="button"
@@ -626,14 +706,41 @@ export const Header: React.FC<HeaderProps> = ({
                       }
                     }, 60);
                   }}
-                  className={`rounded-full px-3 py-1 text-xs font-bold border inline-flex items-center gap-1.5 shadow-sm transition-transform hover:scale-105 cursor-pointer ${
+                  className={`rounded-full px-3 py-1 text-xs font-bold border inline-flex items-center gap-1.5 shadow-sm transition-spring hover:scale-105 cursor-pointer ${
                     primaryTimer.isCompletedCountdown
                       ? 'bg-danger text-white border-danger animate-pulse'
                       : 'bg-wine text-white border-wine'
                   }`}
                   title={primaryTimer.title}
                 >
-                  <Timer className="w-3.5 h-3.5 shrink-0" />
+                  <svg
+                    data-testid="header-timer-progress-ring-svg"
+                    viewBox="0 0 18 18"
+                    className="w-4 h-4 shrink-0 -rotate-90"
+                    aria-hidden="true"
+                  >
+                    <circle
+                      cx="9"
+                      cy="9"
+                      r="7"
+                      stroke="currentColor"
+                      strokeOpacity="0.25"
+                      strokeWidth="2"
+                      fill="none"
+                    />
+                    <circle
+                      cx="9"
+                      cy="9"
+                      r="7"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      fill="none"
+                      strokeDasharray="44"
+                      strokeDashoffset={dashOffset}
+                      strokeLinecap="round"
+                      className="transition-spring"
+                    />
+                  </svg>
                   <span className="max-w-[150px] truncate">
                     {primaryTimer.title}
                   </span>
@@ -666,12 +773,15 @@ export const Header: React.FC<HeaderProps> = ({
               key={tab.id}
               type="button"
               onClick={() => handleSelectTab(tab.id)}
-              className={`min-h-[56px] min-w-[56px] flex-1 rounded-lg flex flex-col items-center justify-center gap-1 text-xs transition-colors cursor-pointer ${
+              className={`min-h-[56px] min-w-[56px] flex-1 rounded-lg flex flex-col items-center justify-center gap-1 text-xs transition-spring cursor-pointer relative ${
                 isActive
                   ? 'text-wine font-bold'
                   : 'text-ink-soft hover:text-ink font-medium'
               }`}
             >
+              {isActive && (
+                <span className="w-6 h-1 rounded-full bg-wine animate-spring-pop" />
+              )}
               {tab.icon}
               <span>{tab.labelFa}</span>
             </button>
