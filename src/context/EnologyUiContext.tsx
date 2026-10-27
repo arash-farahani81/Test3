@@ -9,6 +9,7 @@ import React, {
 import type {
   CellarEquipmentProfile,
   EquipmentPresetId,
+  NutrientInventoryGrams,
   TankId,
   WineBatch
 } from '../types/index.ts';
@@ -24,9 +25,15 @@ import {
 } from '../data/yeastStrainsData.ts';
 import {
   IDEAL_DEFAULT_PROTOCOL_PARAMS,
+  getEffectiveProtocolPlanForBatch,
   notifyFlexibleProtocolSync,
   type FlexibleProtocolParams
 } from '../data/masterProtocolConfig.ts';
+import {
+  getDefaultIdealNutrientInventoryGrams,
+  optimizeNutrientScheduleFromInventory,
+  type BatchNutrientOptimizationResult
+} from '../utils/nutrientInventoryOptimizer.ts';
 
 export type GlobalTankSelection = 'tank-a' | 'tank-b' | 'tank-rose' | 'both-red';
 
@@ -408,6 +415,11 @@ export interface EnologyUiContextValue {
   isYeastSelectorOpen: boolean;
   openYeastSelectorModal: () => void;
   closeYeastSelectorModal: () => void;
+
+  // Nutrient Inventory & Smart SNA Optimizer
+  nutrientInventory: NutrientInventoryGrams;
+  updateNutrientInventory: (nextInventory: NutrientInventoryGrams) => void;
+  batchNutrientOptimization: BatchNutrientOptimizationResult;
 
   // Data synchronization counter across components
   dataVersion: number;
@@ -892,7 +904,10 @@ export const EnologyUiProvider: React.FC<{ children: React.ReactNode }> = ({
         enologyDb.updateBatch(activeBatch.id, {
           tankCount: nextTankCount,
           sugarSource:
-            saved.densityInstrument === 'refractometer_only' ? 'refractometer' : 'hydrometer'
+            saved.densityInstrument === 'refractometer_only' ? 'refractometer' : 'hydrometer',
+          ...(nextProfile.nutrientInventoryGrams !== undefined
+            ? { nutrientInventoryGrams: nextProfile.nutrientInventoryGrams }
+            : {})
         });
       }
 
@@ -952,6 +967,67 @@ export const EnologyUiProvider: React.FC<{ children: React.ReactNode }> = ({
     setIsYeastSelectorOpen(false);
   }, []);
 
+  const nutrientInventory = useMemo<NutrientInventoryGrams>(() => {
+    const existing =
+      activeBatch?.nutrientInventoryGrams ??
+      equipmentProfileState.nutrientInventoryGrams;
+    if (existing) return existing;
+    return getDefaultIdealNutrientInventoryGrams(
+      activeBatch?.initialWeightKg ?? 400,
+      equipmentProfileState.producesRoseSaignee
+    );
+  }, [activeBatch, equipmentProfileState]);
+
+  const batchNutrientOptimization = useMemo<BatchNutrientOptimizationResult>(() => {
+    const effectivePlan = getEffectiveProtocolPlanForBatch(activeBatch);
+    return optimizeNutrientScheduleFromInventory({
+      inventory: nutrientInventory,
+      redLiquidPerTankL: effectivePlan.volumes.redLiquidFermentPerTankL,
+      redTankCount: tankCount,
+      roseLiquidL: effectivePlan.volumes.roseClarifiedFermentL,
+      produceRose: equipmentProfileState.producesRoseSaignee,
+      initialBrix: effectivePlan.params.initialBrix,
+      initialSG: effectivePlan.triggers.initialSG,
+      naturalYANMgL: effectivePlan.params.naturalMustYANMgL,
+      selectedYeastByTank
+    });
+  }, [
+    nutrientInventory,
+    activeBatch,
+    tankCount,
+    equipmentProfileState.producesRoseSaignee,
+    selectedYeastByTank,
+    dataVersion
+  ]);
+
+  const updateNutrientInventory = useCallback(
+    (nextInventory: NutrientInventoryGrams) => {
+      const nextReagents = {
+        ...equipmentProfileState.reagents,
+        hasFermaidOAndK: nextInventory.isCustomInventoryActive
+          ? nextInventory.fermaidOGrams +
+              nextInventory.fermaidKGrams +
+              nextInventory.dapGrams >
+            0
+          : equipmentProfileState.reagents.hasFermaidOAndK
+      };
+      const saved = enologyDb.saveEquipmentProfile({
+        ...equipmentProfileState,
+        reagents: nextReagents,
+        nutrientInventoryGrams: nextInventory,
+        onboardingCompleted: equipmentProfileState.onboardingCompleted
+      });
+      setEquipmentProfileState(saved);
+      if (activeBatch) {
+        enologyDb.updateBatch(activeBatch.id, {
+          nutrientInventoryGrams: nextInventory
+        });
+      }
+      notifyDataChanged();
+    },
+    [equipmentProfileState, activeBatch, notifyDataChanged]
+  );
+
   const value = useMemo<EnologyUiContextValue>(
     () => ({
       batches,
@@ -1010,6 +1086,9 @@ export const EnologyUiProvider: React.FC<{ children: React.ReactNode }> = ({
       isYeastSelectorOpen,
       openYeastSelectorModal,
       closeYeastSelectorModal,
+      nutrientInventory,
+      updateNutrientInventory,
+      batchNutrientOptimization,
       dataVersion,
       notifyDataChanged
     }),
@@ -1064,6 +1143,9 @@ export const EnologyUiProvider: React.FC<{ children: React.ReactNode }> = ({
       isYeastSelectorOpen,
       openYeastSelectorModal,
       closeYeastSelectorModal,
+      nutrientInventory,
+      updateNutrientInventory,
+      batchNutrientOptimization,
       dataVersion,
       notifyDataChanged
     ]
@@ -1164,6 +1246,25 @@ export function useEnologyUi(): EnologyUiContextValue {
     isYeastSelectorOpen: false,
     openYeastSelectorModal: () => {},
     closeYeastSelectorModal: () => {},
+    nutrientInventory:
+      fallbackBatch?.nutrientInventoryGrams ??
+      fallbackEquipment.nutrientInventoryGrams ??
+      getDefaultIdealNutrientInventoryGrams(
+        fallbackBatch?.initialWeightKg ?? 400,
+        fallbackEquipment.producesRoseSaignee
+      ),
+    updateNutrientInventory: () => {},
+    batchNutrientOptimization: optimizeNutrientScheduleFromInventory({
+      inventory:
+        fallbackBatch?.nutrientInventoryGrams ??
+        fallbackEquipment.nutrientInventoryGrams ??
+        getDefaultIdealNutrientInventoryGrams(
+          fallbackBatch?.initialWeightKg ?? 400,
+          fallbackEquipment.producesRoseSaignee
+        ),
+      redTankCount: fallbackTankCount,
+      produceRose: fallbackEquipment.producesRoseSaignee
+    }),
     dataVersion: 0,
     notifyDataChanged: () => {}
   };

@@ -49,7 +49,8 @@ const YEAST_BRAND_LIST: YeastBrand[] = [
   'Maurivin',
   'Red Star',
   'Renaissance',
-  'Chr. Hansen'
+  'Chr. Hansen',
+  'Vinoferm'
 ];
 
 const YEAST_CATEGORY_LABELS_FA: Record<YeastCategory, string> = {

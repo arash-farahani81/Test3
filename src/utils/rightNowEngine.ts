@@ -33,6 +33,7 @@ import {
   computeYeastAdjustedSnaPlan,
   getYeastStrainById
 } from '../data/yeastStrainsData.ts';
+import { optimizeNutrientScheduleFromInventory } from './nutrientInventoryOptimizer.ts';
 
 export type RightNowEquipmentProfileInput = Omit<
   Partial<EquipmentProfileInput>,
@@ -577,6 +578,30 @@ export function evaluateRightNowQueue(options: {
     ? (options.equipmentProfile.produceRoseSaignee ?? options.equipmentProfile.producesRoseSaignee)
     : true;
 
+  const customNutrientInv =
+    options.batch?.nutrientInventoryGrams ??
+    options.equipmentProfile?.nutrientInventoryGrams;
+  const nutrientOpt = customNutrientInv?.isCustomInventoryActive
+    ? optimizeNutrientScheduleFromInventory({
+        inventory: customNutrientInv,
+        redLiquidPerTankL: volumes.redLiquidFermentPerTankL,
+        redTankCount: effectiveTankCount,
+        roseLiquidL: volumes.roseClarifiedFermentL,
+        produceRose: produceRose ?? true,
+        initialBrix: plan.params.initialBrix,
+        initialSG: plan.triggers.initialSG,
+        naturalYANMgL: plan.params.naturalMustYANMgL,
+        selectedYeastByTank:
+          options.selectedYeastByTank ??
+          (
+            options.equipmentProfile as
+              | { selectedYeastByTank?: Partial<Record<TankId, string>> }
+              | undefined
+          )?.selectedYeastByTank ??
+          options.batch?.selectedYeastByTank
+      })
+    : null;
+
   const computeRowStockSyringeHint = (
     additionsToRecord: Array<Omit<ChemicalAddition, 'id'>>
   ): string | undefined => {
@@ -637,6 +662,22 @@ export function evaluateRightNowQueue(options: {
     const defaultId = tId === 'tank-rose' ? 'lalvin-rhone-4600' : 'lalvin-rc-212';
     return customId !== defaultId ? getYeastStrainById(customId, tId === 'tank-rose') : null;
   };
+
+  const getStrainForTank = (tId: TankId) => {
+    const sId =
+      options.selectedYeastByTank?.[tId] ??
+      (
+        options.equipmentProfile as
+          | { selectedYeastByTank?: Partial<Record<TankId, string>> }
+          | undefined
+      )?.selectedYeastByTank?.[tId] ??
+      options.batch?.selectedYeastByTank?.[tId];
+    return getYeastStrainById(sId, tId === 'tank-rose');
+  };
+  const activeTankStrain = getStrainForTank(activeTankId);
+  const activeVolL = activeTankId === 'tank-rose' ? roseFermentL : redLiquidPerTankL;
+  const activeYeastG = Math.round(activeTankStrain.recommendedDoseGL * activeVolL * 100) / 100;
+  const activeGoFermG = Math.round(activeYeastG * plan.params.goFermMultiplier * 100) / 100;
 
   const applyCustomYeastToRow = (
     milestoneId: string,
@@ -998,66 +1039,86 @@ export function evaluateRightNowQueue(options: {
     {
       id: 'yeast-inoculation',
       roadmapStepIds: [13, 14],
-      titleFa: 'آبرسانی مخمر Lalvin RC-212 با محافظ غشایی Go-Ferm',
+      titleFa: `آبرسانی و تلقیح مخمر ${activeTankStrain.nameEn} با محافظ غشایی Go-Ferm`,
       whyFa: 'تضمین غلبهٔ کامل مخمر انتخابی مقاوم به الکل و تامین استرول‌های غشایی از ساعت اول تخمیر.',
-      howToExecuteFa: `${goFermRedG} گرم Go-Ferm را در آب ۴۳ درجه حل کنید، در ۳۸ درجه ${yeastRedG} گرم مخمر RC-212 را بپاشید و پس از هم‌دماسازی پله‌ای (ΔT < 5°C) به مخزن تزریق کنید.`,
-      scienceNoteFa: `Yeast = 0.25 g/L (${yeastRedG} g) + Go-Ferm = 0.30 g/L (${goFermRedG} g) در ${redLiquidPerTankL} L`,
+      howToExecuteFa: `${activeGoFermG} گرم Go-Ferm را در آب ۴۳ درجه حل کنید، در دمای ${activeTankStrain.rehydrationTempC} درجه ${activeYeastG} گرم مخمر ${activeTankStrain.code} را بپاشید و پس از ۱۵ تا ۲۰ دقیقه و هم‌دماسازی پله‌ای (ΔT < 5°C) به مخزن تزریق کنید.`,
+      scienceNoteFa: `Yeast (${activeTankStrain.code}) = ${activeTankStrain.recommendedDoseGL.toFixed(2)} g/L (${activeYeastG} g) + Go-Ferm = ${activeGoFermG} g در ${activeVolL} L`,
       confidenceLabelFa: 'محاسبهٔ استوکیومتری قطعی',
       triggerType: 'day',
       triggerDay: 0,
       windowCloseSG: dynTriggers.sna2,
       closedReasonFa: 'تخمیر از مرحلهٔ تلقیح اولیه عبور کرده است.',
-      buildTankRows: () =>
-        appendRoseTankRow(
-          makeRedTanksRows('yeast-inoculation', [13, 14], (tId, labelFa) => ({
-            doseValue: `${yeastRedG} + ${goFermRedG}`,
-            doseUnit: 'g',
-            compoundFa: 'مخمر RC-212 + Go-Ferm',
-            volumeContextFa: `برای ${redLiquidPerTankL} لیتر`,
-            doseAmountTextFa: `${yeastRedG} g مخمر RC-212 + ${goFermRedG} g Go-Ferm برای ${redLiquidPerTankL} L (${labelFa})`,
-            additionsToRecord: [
-              {
-                batchId,
-                tankId: tId,
-                timestamp: timestampFa,
-                stageTitle: 'روز ۰ - تلقیح مخمر Lalvin RC-212',
-                compoundName: 'مخمر خشک فعال Lalvin RC-212',
-                compoundType: 'yeast',
-                referenceVolumeL: redLiquidPerTankL,
-                sgAtAddition: currentSG,
-                amount: yeastRedG,
-                unit: 'g',
-                purpose: `تلقیح مخمر انتخابی (0.25 g/L) در ${redLiquidPerTankL} لیتر`
-              },
-              {
-                batchId,
-                tankId: tId,
-                timestamp: timestampFa,
-                stageTitle: 'روز ۰ - محافظ غشایی Go-Ferm Protect',
-                compoundName: 'Go-Ferm Protect Evolution',
-                compoundType: 'go_ferm',
-                referenceVolumeL: redLiquidPerTankL,
-                sgAtAddition: currentSG,
-                amount: goFermRedG,
-                unit: 'g',
-                purpose: `تامین استرول و ریزمغذی آبرسانی مخمر (0.30 g/L) در ${redLiquidPerTankL} لیتر`
-              }
-            ]
-          })),
+      buildTankRows: () => {
+        const roseStrain = getStrainForTank('tank-rose');
+        const rYeastG =
+          customNutrientInv?.isCustomInventoryActive && nutrientOpt
+            ? nutrientOpt.tanks['tank-rose'].yeastNeededGrams
+            : Math.round(roseStrain.recommendedDoseGL * roseFermentL * 100) / 100;
+        const rGoFermG =
+          customNutrientInv?.isCustomInventoryActive && nutrientOpt
+            ? nutrientOpt.tanks['tank-rose'].goFermAllocatedGrams
+            : Math.round(rYeastG * plan.params.goFermMultiplier * 100) / 100;
+        return appendRoseTankRow(
+          makeRedTanksRows('yeast-inoculation', [13, 14], (tId, labelFa) => {
+            const tStrain = getStrainForTank(tId);
+            const tYeastG =
+              customNutrientInv?.isCustomInventoryActive && nutrientOpt
+                ? nutrientOpt.tanks[tId].yeastNeededGrams
+                : Math.round(tStrain.recommendedDoseGL * redLiquidPerTankL * 100) / 100;
+            const tGoFermG =
+              customNutrientInv?.isCustomInventoryActive && nutrientOpt
+                ? nutrientOpt.tanks[tId].goFermAllocatedGrams
+                : Math.round(tYeastG * plan.params.goFermMultiplier * 100) / 100;
+            return {
+              doseValue: `${tYeastG} + ${tGoFermG}`,
+              doseUnit: 'g',
+              compoundFa: `مخمر ${tStrain.code} + Go-Ferm`,
+              volumeContextFa: `برای ${redLiquidPerTankL} لیتر`,
+              doseAmountTextFa: `${tYeastG} g مخمر ${tStrain.code} + ${tGoFermG} g Go-Ferm برای ${redLiquidPerTankL} L (${labelFa})`,
+              additionsToRecord: [
+                {
+                  batchId,
+                  tankId: tId,
+                  timestamp: timestampFa,
+                  stageTitle: `روز ۰ - تلقیح مخمر ${tStrain.nameEn}`,
+                  compoundName: `مخمر خشک فعال ${tStrain.nameEn}`,
+                  compoundType: 'yeast',
+                  referenceVolumeL: redLiquidPerTankL,
+                  sgAtAddition: currentSG,
+                  amount: tYeastG,
+                  unit: 'g',
+                  purpose: `تلقیح مخمر انتخابی (${tStrain.recommendedDoseGL.toFixed(2)} g/L) در ${redLiquidPerTankL} لیتر`
+                },
+                {
+                  batchId,
+                  tankId: tId,
+                  timestamp: timestampFa,
+                  stageTitle: 'روز ۰ - محافظ غشایی Go-Ferm Protect',
+                  compoundName: 'Go-Ferm Protect Evolution',
+                  compoundType: 'go_ferm',
+                  referenceVolumeL: redLiquidPerTankL,
+                  sgAtAddition: currentSG,
+                  amount: tGoFermG,
+                  unit: 'g',
+                  purpose: `تامین استرول و ریزمغذی آبرسانی مخمر در ${redLiquidPerTankL} لیتر`
+                }
+              ]
+            };
+          }),
           'yeast-inoculation',
           [13, 14],
-          `${yeastRoseG} g مخمر RC-212 + ${goFermRoseG} g Go-Ferm برای ${roseFermentL} L (گالن رُزه)`,
+          `${rYeastG} g مخمر ${roseStrain.code} + ${rGoFermG} g Go-Ferm برای ${roseFermentL} L (گالن رُزه)`,
           [
             {
               batchId: roseBatchId,
               tankId: 'tank-rose',
               timestamp: timestampFa,
-              stageTitle: 'روز ۰ - تلقیح مخمر رُزه Lalvin RC-212',
-              compoundName: 'مخمر خشک فعال Lalvin RC-212',
+              stageTitle: `روز ۰ - تلقیح مخمر رُزه ${roseStrain.nameEn}`,
+              compoundName: `مخمر خشک فعال ${roseStrain.nameEn}`,
               compoundType: 'yeast',
               referenceVolumeL: roseFermentL,
               sgAtAddition: currentSG,
-              amount: yeastRoseG,
+              amount: rYeastG,
               unit: 'g',
               purpose: `تلقیح مخمر رُزه در ${roseFermentL} لیتر آب‌انگور شفاف`
             },
@@ -1070,18 +1131,19 @@ export function evaluateRightNowQueue(options: {
               compoundType: 'go_ferm',
               referenceVolumeL: roseFermentL,
               sgAtAddition: currentSG,
-              amount: goFermRoseG,
+              amount: rGoFermG,
               unit: 'g',
               purpose: `تامین استرول آبرسانی مخمر رُزه در ${roseFermentL} لیتر`
             }
           ],
           {
-            doseValue: `${yeastRoseG} + ${goFermRoseG}`,
+            doseValue: `${rYeastG} + ${rGoFermG}`,
             doseUnit: 'g',
-            compoundFa: 'مخمر RC-212 + Go-Ferm',
+            compoundFa: `مخمر ${roseStrain.code} + Go-Ferm`,
             volumeContextFa: `برای ${roseFermentL} لیتر`
           }
-        )
+        );
+      }
     },
     {
       id: 'sna-1',
@@ -1715,7 +1777,104 @@ export function evaluateRightNowQueue(options: {
   });
 
   const allMilestones: RightNowMilestone[] = effectiveBlueprints.map((bp) => {
-    const tankRows = bp.buildTankRows();
+    const rawTankRows = bp.buildTankRows();
+    const tankRows: MilestoneTankRow[] = nutrientOpt
+      ? rawTankRows.map((row) => {
+          const optTank = nutrientOpt.tanks[row.tankId];
+          if (!optTank) return row;
+          const nextRow: MilestoneTankRow = {
+            ...row,
+            additionsToRecord: row.additionsToRecord.map((a) => ({ ...a }))
+          };
+          if (bp.id === 'yeast-inoculation') {
+            nextRow.doseValue = `${optTank.yeastNeededGrams} + ${optTank.goFermAllocatedGrams}`;
+            nextRow.doseAmountTextFa = `${optTank.yeastNeededGrams} g مخمر (${optTank.yeastStrain.code}) + ${optTank.goFermAllocatedGrams} g Go-Ferm (${row.tankLabelFa})`;
+            if (nextRow.additionsToRecord[0]) {
+              nextRow.additionsToRecord[0].amount = optTank.yeastNeededGrams;
+            }
+            if (nextRow.additionsToRecord[1]) {
+              nextRow.additionsToRecord[1].amount = optTank.goFermAllocatedGrams;
+            }
+          } else if (bp.id === 'sna-1') {
+            if (optTank.sna1.fermaidKGrams > 0) {
+              nextRow.doseValue = `${optTank.sna1.fermaidOGrams} + ${optTank.sna1.fermaidKGrams}`;
+              nextRow.compoundFa = 'Fermaid O + Fermaid K (بهینه‌شده با موجودی)';
+              nextRow.doseAmountTextFa = `${optTank.sna1.fermaidOGrams} g Fermaid O + ${optTank.sna1.fermaidKGrams} g Fermaid K (${row.tankLabelFa})`;
+              if (nextRow.additionsToRecord[0]) {
+                nextRow.additionsToRecord[0].amount = optTank.sna1.fermaidOGrams;
+              }
+              const baseAdd = nextRow.additionsToRecord[0];
+              nextRow.additionsToRecord.push({
+                batchId: baseAdd?.batchId ?? batchId,
+                tankId: row.tankId,
+                timestamp: baseAdd?.timestamp ?? timestampFa,
+                stageTitle:
+                  baseAdd?.stageTitle ??
+                  'روز ۲ - تغذیه نوبت اول (SNA-1 — بهینه‌شده با موجودی)',
+                compoundName: 'مکمل مخمر Fermaid K (جبرانی SNA-1)',
+                compoundType: 'fermaid_k',
+                referenceVolumeL:
+                  baseAdd?.referenceVolumeL ?? optTank.liquidVolumeL,
+                sgAtAddition: currentSG,
+                amount: optTank.sna1.fermaidKGrams,
+                unit: 'g',
+                purpose: 'جبران کسری نیتروژن نوبت اول با Fermaid K'
+              });
+            } else {
+              nextRow.doseValue = `${optTank.sna1.fermaidOGrams}`;
+              nextRow.doseAmountTextFa = `${optTank.sna1.fermaidOGrams} g Fermaid O (${row.tankLabelFa})`;
+              if (nextRow.additionsToRecord[0]) {
+                nextRow.additionsToRecord[0].amount = optTank.sna1.fermaidOGrams;
+              }
+            }
+          } else if (bp.id === 'sna-2-dap') {
+            nextRow.doseValue =
+              optTank.sna2.fermaidOGrams > 0
+                ? `${optTank.sna2.fermaidKGrams} + ${optTank.sna2.dapGrams} + ${optTank.sna2.fermaidOGrams}`
+                : `${optTank.sna2.fermaidKGrams} + ${optTank.sna2.dapGrams} + ${optTank.sna2.zincGrams}`;
+            nextRow.compoundFa =
+              optTank.sna2.fermaidOGrams > 0
+                ? 'Fermaid K + DAP + Fermaid O (بهینه‌شده با موجودی)'
+                : row.compoundFa;
+            nextRow.doseAmountTextFa = `${optTank.sna2.fermaidKGrams} g K + ${optTank.sna2.dapGrams} g DAP + ${optTank.sna2.zincGrams} g Zn${optTank.sna2.fermaidOGrams > 0 ? ` + ${optTank.sna2.fermaidOGrams} g Fermaid O` : ''} (${row.tankLabelFa})`;
+            for (const addRec of nextRow.additionsToRecord) {
+              if (addRec.compoundType === 'fermaid_k') {
+                addRec.amount = optTank.sna2.fermaidKGrams;
+              } else if (addRec.compoundType === 'dap') {
+                addRec.amount = optTank.sna2.dapGrams;
+              } else if (addRec.compoundType === 'zinc') {
+                addRec.amount = optTank.sna2.zincGrams;
+              }
+            }
+            if (optTank.sna2.fermaidOGrams > 0) {
+              const baseAdd = nextRow.additionsToRecord[0];
+              nextRow.additionsToRecord.push({
+                batchId: baseAdd?.batchId ?? batchId,
+                tankId: row.tankId,
+                timestamp: baseAdd?.timestamp ?? timestampFa,
+                stageTitle:
+                  baseAdd?.stageTitle ??
+                  'روز ۳ - تغذیه نوبت دوم (SNA-2 — بهینه‌شده با موجودی)',
+                compoundName: 'نیتروژن آلی Fermaid O (جبرانی SNA-2)',
+                compoundType: 'fermaid_o',
+                referenceVolumeL:
+                  baseAdd?.referenceVolumeL ?? optTank.liquidVolumeL,
+                sgAtAddition: currentSG,
+                amount: optTank.sna2.fermaidOGrams,
+                unit: 'g',
+                purpose: 'جبران کسری نیتروژن نوبت دوم با Fermaid O'
+              });
+            }
+          } else if (bp.id === 'sna-3-organic') {
+            nextRow.doseValue = `${optTank.sna3.fermaidOGrams}`;
+            nextRow.doseAmountTextFa = `${optTank.sna3.fermaidOGrams} g Fermaid O (${row.tankLabelFa})`;
+            if (nextRow.additionsToRecord[0]) {
+              nextRow.additionsToRecord[0].amount = optTank.sna3.fermaidOGrams;
+            }
+          }
+          return nextRow;
+        })
+      : rawTankRows;
     const activeRow =
       tankRows.find((r) => r.tankId === activeTankId) ?? tankRows[0];
     const isCompleted = activeRow ? activeRow.isCompletedForTank : false;
@@ -1827,9 +1986,27 @@ export function evaluateRightNowQueue(options: {
         : undefined;
     const substitutionWarningFa =
       equipAdapt?.substitutionWarningFa ?? explicitFermaidKSubFa ?? explicitBactilessSubFa;
+    const isSnaMilestone =
+      bp.id === 'sna-1' || bp.id === 'sna-2-dap' || bp.id === 'sna-3-organic';
+    const baseEquipNoteFa = equipAdapt?.adaptedHowToFa;
+    const finalEquipmentAdaptationNoteFa =
+      isSnaMilestone && nutrientOpt
+        ? baseEquipNoteFa
+          ? `${baseEquipNoteFa} | ${nutrientOpt.strategySummaryFa}`
+          : nutrientOpt.strategySummaryFa
+        : baseEquipNoteFa;
+    const nutrientDeficitWarnFa =
+      isSnaMilestone &&
+      nutrientOpt &&
+      nutrientOpt.hasNitrogenDeficit &&
+      nutrientOpt.deficitAlertFa
+        ? `${nutrientOpt.deficitAlertFa}${nutrientOpt.recommendations[0] ? ` — پیشنهاد: ${nutrientOpt.recommendations[0].titleFa} (${nutrientOpt.recommendations[0].amountTextFa})` : ''}`
+        : undefined;
+    const finalReagentSubstitutionWarningFa =
+      nutrientDeficitWarnFa ?? substitutionWarningFa;
     const adaptedHowToExecuteFa =
-      substitutionWarningFa
-        ? `${bp.howToExecuteFa}\n• جایگزین تجهیزات: ${substitutionWarningFa}`
+      finalReagentSubstitutionWarningFa
+        ? `${bp.howToExecuteFa}\n• جایگزین تجهیزات: ${finalReagentSubstitutionWarningFa}`
         : bp.howToExecuteFa;
 
     return {
@@ -1852,8 +2029,8 @@ export function evaluateRightNowQueue(options: {
       estimatedHoursUntilDue,
       skippedReasonFa,
       snoozedUntilMs,
-      equipmentAdaptationNoteFa: equipAdapt?.adaptedHowToFa,
-      reagentSubstitutionWarningFa: substitutionWarningFa,
+      equipmentAdaptationNoteFa: finalEquipmentAdaptationNoteFa,
+      reagentSubstitutionWarningFa: finalReagentSubstitutionWarningFa,
       tankRows
     };
   });

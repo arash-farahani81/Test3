@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   YEAST_STRAINS_DATABASE,
@@ -6,6 +6,7 @@ import {
   computeYeastAdjustedSnaPlan,
   computeYeastAcidityAndGlycerolImpact,
   recommendYeastStrainsForGoal,
+  formatProtocolTextWithYeast,
   type YeastBrand
 } from './yeastStrainsData.ts';
 import { getCapTemperatureAlertLevel } from '../utils/trackingCalculations.ts';
@@ -13,10 +14,10 @@ import { evaluateEnologicalScenario } from '../utils/enologyTroubleshooting.ts';
 import { evaluateRightNowQueue } from '../utils/rightNowEngine.ts';
 
 describe('yeastStrainsData — 36-Strain Global Yeast Bioprocess Engine', () => {
-  it('contains 36 unique strains across all 9 global brands', () => {
-    assert.equal(YEAST_STRAINS_DATABASE.length, 36);
+  it('contains 37 unique strains across all 10 global brands', () => {
+    assert.equal(YEAST_STRAINS_DATABASE.length, 37);
     const uniqueIds = new Set(YEAST_STRAINS_DATABASE.map((s) => s.id));
-    assert.equal(uniqueIds.size, 36);
+    assert.equal(uniqueIds.size, 37);
 
     const expectedBrands: YeastBrand[] = [
       'Lallemand',
@@ -27,7 +28,8 @@ describe('yeastStrainsData — 36-Strain Global Yeast Bioprocess Engine', () => 
       'Maurivin',
       'Red Star',
       'Renaissance',
-      'Chr. Hansen'
+      'Chr. Hansen',
+      'Vinoferm'
     ];
     const presentBrands = new Set(YEAST_STRAINS_DATABASE.map((s) => s.brand));
     for (const brand of expectedBrands) {
@@ -178,3 +180,47 @@ describe('yeastStrainsData — 36-Strain Global Yeast Bioprocess Engine', () => 
   });
 });
 
+test('vinoferm-grand-cru profile and acidity/glycerol impact (OenoBioTech / Brouwland datasheet)', () => {
+  const grandCru = getYeastStrainById('vinoferm-grand-cru');
+  assert.equal(grandCru.id, 'vinoferm-grand-cru');
+  assert.equal(grandCru.brand, 'Vinoferm');
+  assert.equal(grandCru.tempOptMinC, 18);
+  assert.equal(grandCru.tempOptMaxC, 28);
+  assert.equal(grandCru.alcoholTolerancePct, 16.0);
+  assert.equal(grandCru.recommendedDoseGL, 0.20);
+  assert.equal(grandCru.endogenousSo2MgL, 0);
+  assert.equal(grandCru.malicConsumptionPct, -28);
+  assert.equal(grandCru.expectedPhShift, 0.08);
+  assert.equal(grandCru.glycerolYieldGL, 6.0);
+
+  const impact = computeYeastAcidityAndGlycerolImpact({
+    strainId: 'vinoferm-grand-cru',
+    initialPH: 3.50,
+    initialTA: 6.5,
+    defaultMaxGlycerinGL: 3.5
+  });
+  assert.equal(impact.hasHighMalicDegradation, true);
+  assert.equal(impact.predictedFinalPH, 3.58);
+});
+
+test('formatProtocolTextWithYeast replaces Lalvin RC-212, RC-212, and Rhône 4600 / ICV D47 with active and rosé strain names/codes', () => {
+  const grandCru = getYeastStrainById('vinoferm-grand-cru');
+  const d47 = getYeastStrainById('lalvin-icv-d47', true);
+
+  const redFormatted = formatProtocolTextWithYeast(
+    'تلقیح مخمر Lalvin RC-212 و پایش RC-212',
+    grandCru
+  );
+  assert.ok(redFormatted.includes('Vinoferm Grand Cru (OenoBioTech / ISVV Bordeaux)'));
+  assert.ok(redFormatted.includes('پایش Grand Cru'));
+  assert.equal(redFormatted.includes('RC-212'), false);
+
+  const roseFormatted = formatProtocolTextWithYeast(
+    'مخمر Lalvin Bourgovin RC-212 برای قرمز و مخمر Rhône 4600 / ICV D47 برای رُزه',
+    grandCru,
+    d47
+  );
+  assert.ok(roseFormatted.includes('Vinoferm Grand Cru'));
+  assert.ok(roseFormatted.includes(`مخمر ${d47.code} برای رُزه`));
+  assert.equal(roseFormatted.includes('Rhône 4600'), false);
+});

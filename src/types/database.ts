@@ -47,6 +47,7 @@ export interface WineBatch {
   protocolParamsSnapshot?: Record<string, number | string>;
   selectedYeastByTank?: Partial<Record<TankId, string>>;
   volumeBasis?: 'liquid_phase' | 'gross_mash' | 'liquid' | 'must';
+  nutrientInventoryGrams?: NutrientInventoryGrams;
 }
 
 export interface ChemicalAddition {
@@ -187,6 +188,15 @@ export interface AvailableReagentsConfig {
   hasOakChipsOrStaves: boolean;
 }
 
+export interface NutrientInventoryGrams {
+  isCustomInventoryActive: boolean;
+  goFermGrams: number;
+  fermaidOGrams: number;
+  fermaidKGrams: number;
+  dapGrams: number;
+  zincSulfateGrams: number;
+}
+
 export interface CellarEquipmentProfile {
   presetId: EquipmentPresetId;
   onboardingCompleted: boolean;
@@ -212,6 +222,7 @@ export interface CellarEquipmentProfile {
   transferAndBottlingMethod: TransferAndBottlingMethodType;
   reagents: AvailableReagentsConfig;
   selectedYeastByTank?: Partial<Record<TankId, string>>;
+  nutrientInventoryGrams?: NutrientInventoryGrams;
 }
 
 export interface EnologyDatabaseExport {
@@ -237,6 +248,15 @@ export const AvailableReagentsConfigSchema = z.object({
   hasCopperSulfate: z.boolean(),
   hasPotassiumBicarbonate: z.boolean(),
   hasOakChipsOrStaves: z.boolean()
+});
+
+export const NutrientInventoryGramsSchema = z.object({
+  isCustomInventoryActive: z.boolean(),
+  goFermGrams: z.number(),
+  fermaidOGrams: z.number(),
+  fermaidKGrams: z.number(),
+  dapGrams: z.number(),
+  zincSulfateGrams: z.number()
 });
 
 export const CellarEquipmentProfileSchema = z.object({
@@ -287,7 +307,8 @@ export const CellarEquipmentProfileSchema = z.object({
     'gravity_siphon_decant_only'
   ]),
   reagents: AvailableReagentsConfigSchema,
-  selectedYeastByTank: z.record(z.string(), z.string()).optional()
+  selectedYeastByTank: z.record(z.string(), z.string()).optional(),
+  nutrientInventoryGrams: NutrientInventoryGramsSchema.optional()
 });
 
 export const TankIdSchema = z.enum(['tank-a', 'tank-b', 'tank-rose']);
@@ -338,7 +359,8 @@ export const WineBatchSchema = z.object({
   updatedAtMs: z.number().optional(),
   protocolParamsSnapshot: z.record(z.string(), z.union([z.number(), z.string()])).optional(),
   selectedYeastByTank: z.record(z.string(), z.string()).optional(),
-  volumeBasis: z.enum(['liquid_phase', 'gross_mash', 'liquid', 'must']).optional()
+  volumeBasis: z.enum(['liquid_phase', 'gross_mash', 'liquid', 'must']).optional(),
+  nutrientInventoryGrams: NutrientInventoryGramsSchema.optional()
 });
 
 export const ChemicalAdditionSchema = z.object({

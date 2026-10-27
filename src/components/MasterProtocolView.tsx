@@ -34,6 +34,7 @@ import { useLocalStorageState } from '../utils/useLocalStorage.ts';
 import { exportDocxReport } from '../utils/exportDocxReport.ts';
 import { enologyDb } from '../db/enologyDatabase.ts';
 import { BioscienceDatabaseView } from './BioscienceDatabaseView.tsx';
+import { formatProtocolTextWithYeast } from '../data/yeastStrainsData.ts';
 import type { CellarEquipmentProfile } from '../types/index.ts';
 
 export type Pillar4SubView = 'master-protocol' | 'bioscience-kb' | 'export-backup';
@@ -574,7 +575,7 @@ export const MasterProtocolView: React.FC<MasterProtocolViewProps> = ({
                           {item.row}
                         </td>
                         <td className="py-2.5 px-3 font-bold text-stone-900 border-l border-stone-200">
-                          <div>{item.name}</div>
+                          <div>{formatProtocolTextWithYeast(item.name, strainA, strainRose)}</div>
                           <div className="mt-1.5 flex flex-col items-start gap-1">
                             <span
                               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-xs font-semibold ${
@@ -605,10 +606,10 @@ export const MasterProtocolView: React.FC<MasterProtocolViewProps> = ({
                           {item.doseRate}
                         </td>
                         <td className="py-2.5 px-3 text-stone-800 border-l border-stone-200 whitespace-pre-line text-xs">
-                          {item.tankA}
+                          {formatProtocolTextWithYeast(item.tankA, strainA)}
                         </td>
                         <td className="py-2.5 px-3 text-stone-800 border-l border-stone-200 whitespace-pre-line text-xs">
-                          {item.tankB}
+                          {formatProtocolTextWithYeast(item.tankB, strainB)}
                         </td>
                         <td
                           className={`py-2.5 px-3 border-l border-stone-200 whitespace-pre-line text-xs ${
@@ -617,7 +618,7 @@ export const MasterProtocolView: React.FC<MasterProtocolViewProps> = ({
                               : 'text-ink-soft opacity-60'
                           }`}
                         >
-                          <div>{item.roseShare}</div>
+                          <div>{formatProtocolTextWithYeast(item.roseShare, strainRose, strainRose)}</div>
                           {!produceRoseSaignee && (
                             <div className="mt-1 text-xs text-ink-soft font-medium">
                               غیرفعال در پروفایل شما (۱۰۰٪ قرمز)
@@ -625,7 +626,7 @@ export const MasterProtocolView: React.FC<MasterProtocolViewProps> = ({
                           )}
                         </td>
                         <td className="py-2.5 px-3 text-stone-600 text-xs">
-                          {item.purpose}
+                          {formatProtocolTextWithYeast(item.purpose, strainA, strainRose)}
                         </td>
                       </tr>
                     );
@@ -845,7 +846,12 @@ export const MasterProtocolView: React.FC<MasterProtocolViewProps> = ({
                   <strong>گام ۴ (ساعت ۱۱:۰۰ تا ۱۲:۳۰ در قرمز):</strong> تزریق تانن فاز ۱ (3.96g سفید + 13.20g قرمز در آب ۳۵ درجه). تست آزمایشگاهی ۳ لیوانی اسید تارتاریک برای قفل روی pH = 3.52 با رعایت سقف TA ≤ 7.2 g/L.
                 </p>
                 <p>
-                  <strong>گام ۵ (ساعت ۱۵:۳۰ تا ۱۶:۳۰ در قرمز):</strong> بیدارسازی 39.60 g پودر Go-Ferm در آب ۴۳ درجه و افزودن 33.00 g مخمر RC-212 در ۴۰ درجه. هم‌دمایی ۳ مرحله‌ای (+500mL در ۳۰.۵°C، +900mL در ۲۶.۰°C، +1500mL در ۲۲.۵°C) و تلقیح در ساعت ۱۶:۲۵.
+                  <strong>گام ۵ (ساعت ۱۵:۳۰ تا ۱۶:۳۰ در قرمز):</strong>{' '}
+                  {formatProtocolTextWithYeast(
+                    'بیدارسازی 39.60 g پودر Go-Ferm در آب ۴۳ درجه و افزودن 33.00 g مخمر RC-212 در ۴۰ درجه. هم‌دمایی ۳ مرحله‌ای (+500mL در ۳۰.۵°C، +900mL در ۲۶.۰°C، +1500mL در ۲۲.۵°C) و تلقیح در ساعت ۱۶:۲۵.',
+                    strainA,
+                    strainRose
+                  )}
                 </p>
               </div>
             </div>
@@ -1084,7 +1090,7 @@ export const MasterProtocolView: React.FC<MasterProtocolViewProps> = ({
                             {row.time}
                           </td>
                           <td className="py-2.5 px-3 text-stone-800 border-l border-stone-200 leading-relaxed">
-                            {row.operation}
+                            {formatProtocolTextWithYeast(row.operation, strainA, strainRose)}
                           </td>
                           <td className="py-2.5 px-3 text-center font-bold text-rose-900 border-l border-stone-200">
                             {row.temp}
@@ -1186,7 +1192,7 @@ export const MasterProtocolView: React.FC<MasterProtocolViewProps> = ({
                             {row.pigeage}
                           </td>
                           <td className="py-2.5 px-3 text-stone-800 border-l border-stone-200 leading-relaxed text-xs">
-                            {row.specialOp}
+                            {formatProtocolTextWithYeast(row.specialOp, strainA, strainRose)}
                           </td>
                           <td className="py-2.5 px-3 text-center text-stone-700 text-xs whitespace-pre-line">
                             {row.sensory}
@@ -1225,7 +1231,7 @@ export const MasterProtocolView: React.FC<MasterProtocolViewProps> = ({
                             {row.stage}
                           </td>
                           <td className="py-2.5 px-3 text-stone-800 border-l border-stone-200 leading-relaxed">
-                            {row.op}
+                            {formatProtocolTextWithYeast(row.op, strainRose, strainRose)}
                           </td>
                           <td className="py-2.5 px-3 text-center font-bold text-rose-900 border-l border-stone-200">
                             {row.targetTemp}

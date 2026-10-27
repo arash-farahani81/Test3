@@ -146,7 +146,8 @@ export const RightNowActionCenter: React.FC<RightNowActionCenterProps> = ({
     openEquipmentModal,
     selectedYeastByTank,
     activeTankYeastStrain,
-    openYeastSelectorModal
+    openYeastSelectorModal,
+    batchNutrientOptimization
   } = useEnologyUi();
 
   const currentTankId: TankId = externalTankId ?? effectiveSingleTankId;
@@ -281,7 +282,8 @@ export const RightNowActionCenter: React.FC<RightNowActionCenterProps> = ({
       currentBatch,
       hasDemo,
       equipmentProfile,
-      selectedYeastByTank
+      selectedYeastByTank,
+      batchNutrientOptimization
     ]
   );
 
@@ -678,6 +680,30 @@ export const RightNowActionCenter: React.FC<RightNowActionCenterProps> = ({
           </button>
         </div>
       </div>
+
+      {batchNutrientOptimization.isOptimizedFromCustomInventory && (
+        <div
+          data-testid="today-nutrient-optimizer-banner"
+          className={`rounded-xl border p-2.5 mb-3 text-xs flex flex-wrap items-center justify-between gap-2 ${
+            batchNutrientOptimization.hasNitrogenDeficit
+              ? 'border-danger/50 bg-danger/10 text-ink'
+              : 'border-line bg-surface text-ink'
+          }`}
+        >
+          <span>
+            {batchNutrientOptimization.hasNitrogenDeficit
+              ? batchNutrientOptimization.deficitAlertFa
+              : batchNutrientOptimization.strategySummaryFa}
+          </span>
+          <button
+            type="button"
+            onClick={() => navigateToLabTest('sop-05')}
+            className="rounded-lg bg-wine text-white px-2.5 py-1 text-xs font-bold cursor-pointer"
+          >
+            تنظیم موجودی مغذی (SOP-05)
+          </button>
+        </div>
+      )}
 
       {/* 3. 10-Second Undo Banner (Idea #028) */}
       {undoSession && (

@@ -467,6 +467,14 @@ export function evaluateEnologicalScenario(input: ScenarioInput): EnologyEvaluat
   // ----------------------------------------------------
   // 2. STAGE-AWARE TEMPERATURE CONTROL & COOLING
   // ----------------------------------------------------
+  const selectedStrain = input.yeastStrainId
+    ? getYeastStrainById(input.yeastStrainId, isRose)
+    : null;
+  const strainCode = selectedStrain ? selectedStrain.code : 'RC-212';
+  const strainOptRange = selectedStrain
+    ? `${selectedStrain.tempOptMinC}–${selectedStrain.tempOptMaxC}`
+    : '۲۰–۲۸.۵';
+
   if (input.currentSG <= 0.995) {
     // Stage 4: Post-Fermentation / Finished Wine Aging (Optimal: 14.0–16.0 °C, or 0–2 °C in cold stab)
     if (input.tempCapC > 20.0) {
@@ -586,7 +594,7 @@ export function evaluateEnologicalScenario(input: ScenarioInput): EnologyEvaluat
         title: 'بحران ۱: شوک حرارتی مرگبار مخمر (T ≥ 32°C) و خطر جهش اسیدیته فرار (سرکه)!',
         category: 'Temperature',
         severity: 'danger',
-        diagnosis: `دمای مرکز کلاهک (${input.tempCapC}°C) از مرز بحرانی ۳۲.۰ درجه عبور کرده است! در این دما در حضور الکل، غشای فسفولیپیدی مخمر RC-212 متلاشی شده، تخمیر متوقف (Stuck) می‌گردد و باکتری‌های سرکه به سرعت تکثیر می‌شوند.`,
+        diagnosis: `دمای مرکز کلاهک (${input.tempCapC}°C) از مرز بحرانی ۳۲.۰ درجه عبور کرده است! در این دما در حضور الکل، غشای فسفولیپیدی مخمر ${strainCode} متلاشی شده، تخمیر متوقف (Stuck) می‌گردد و باکتری‌های سرکه به سرعت تکثیر می‌شوند.`,
         solutionSummary: 'مداخله اورژانسی زیر ۱۵ دقیقه: غوطه‌ورسازی ۴ بطری ۱.۵ لیتری یخ ضدعفونی‌شده زیر کلاهک + تزریق یخ خشک در کاسه استیل شناور.',
         calculatedRecipe: [
           {
@@ -670,7 +678,7 @@ export function evaluateEnologicalScenario(input: ScenarioInput): EnologyEvaluat
           : 'سرد شدن بیش از حد و خطر کُند شدن فعالیت مخمر',
         category: 'Temperature',
         severity: isColdDanger ? 'danger' : 'caution',
-        diagnosis: `دمای کلاهک (${input.tempCapC}°C) کمتر از محدوده فعال‌سازی و استخراج رنگ مخمر RC-212 (۲۰–۲۸.۵ درجه) است.`,
+        diagnosis: `دمای کلاهک (${input.tempCapC}°C) کمتر از محدوده فعال‌سازی و استخراج رنگ مخمر ${strainCode} (${strainOptRange} درجه) است.`,
         solutionSummary: 'انتقال ظروف به محیط گرم‌تر (۲۰–۲۲ درجه) یا استفاده از کمربند حرارتی کنترل‌شده.',
         steps: [
           'دمای اتاق تخمیر را به ۲۰–۲۲ درجه سانتی‌گراد برسانید.',
@@ -763,18 +771,18 @@ export function evaluateEnologicalScenario(input: ScenarioInput): EnologyEvaluat
       severity: 'caution',
       diagnosis: `بریکس اولیه (${input.currentBrix}° Bx) کمتر از استانداردهای انگور رشه سردشت است. الکل نهایی کمتر از ۱۱.۵٪ خواهد شد و بدنه‌ی شراب ضعیف می‌گردد.`,
       solutionSummary:
-        `چاپتالیزاسیون (غنی‌سازی با شکر خالص خوراکی به میزان ۱۰.۸ گرم بر لیتر به ازای هر ۱.۰ درجه بریکس کسری — توجه: ۱۷ گرم بر لیتر معادل ۱٪ الکل بالقوه یا ~۱.۶ درجه بریکس است) جهت رسیدن به ۲۲.۰° Bx (انبساط حجمی ناشی از انحلال شکر: +${chaptalPlan.volumeExpansionL} لیتر ← حجم نهایی فاز مایع: ${chaptalPlan.finalLiquidVolumeL} لیتر).`,
+        `چاپتالیزاسیون (غنی‌سازی با شکر خالص خوراکی به میزان ${chaptalPlan.gramsPerLiterPerBrix} گرم بر لیتر به ازای هر ۱.۰ درجه بریکس کسری بر پایه موازنه جرم محلول — توجه: معیار ۱۷ گرم بر لیتر مربوط به افزایش ۱٪ الکل بالقوه است و با درجه بریکس متفاوت است) جهت رسیدن به ۲۲.۰° Bx (انبساط حجمی ناشی از انحلال شکر: +${chaptalPlan.volumeExpansionL} لیتر ← حجم نهایی فاز مایع: ${chaptalPlan.finalLiquidVolumeL} لیتر).`,
       calculatedRecipe: [
         {
           item: 'شکر خالص تصفیه‌شده خوراکی',
           amount: `${sugarNeededGrams}`,
           unit: 'گرم',
           instruction:
-            'چاپتالیزاسیون (غنی‌سازی با شکر خالص خوراکی به میزان ۱۰.۸ گرم بر لیتر به ازای هر ۱.۰ درجه بریکس کسری — توجه: ۱۷ گرم بر لیتر معادل ۱٪ الکل بالقوه یا ~۱.۶ درجه بریکس است) جهت رسیدن به ۲۲.۰° Bx'
+            `چاپتالیزاسیون (غنی‌سازی با شکر خالص خوراکی به میزان ${chaptalPlan.gramsPerLiterPerBrix} گرم بر لیتر به ازای هر ۱.۰ درجه بریکس کسری بر پایه موازنه جرم محلول — توجه: معیار ۱۷ گرم بر لیتر مربوط به افزایش ۱٪ الکل بالقوه است و با درجه بریکس متفاوت است) جهت رسیدن به ۲۲.۰° Bx`
         }
       ],
       steps: [
-        `چاپتالیزاسیون (غنی‌سازی با شکر خالص خوراکی به میزان ۱۰.۸ گرم بر لیتر به ازای هر ۱.۰ درجه بریکس کسری — توجه: ۱۷ گرم بر لیتر معادل ۱٪ الکل بالقوه یا ~۱.۶ درجه بریکس است) جهت رسیدن به ۲۲.۰° Bx: مقدار ${sugarNeededGrams} گرم شکر را در مقداری شربت گرم حل کنید (انبساط حجمی ناشی از انحلال شکر: +${chaptalPlan.volumeExpansionL} لیتر ← حجم نهایی فاز مایع: ${chaptalPlan.finalLiquidVolumeL} لیتر).`,
+        `چاپتالیزاسیون (غنی‌سازی با شکر خالص خوراکی به میزان ${chaptalPlan.gramsPerLiterPerBrix} گرم بر لیتر به ازای هر ۱.۰ درجه بریکس کسری بر پایه موازنه جرم محلول — توجه: معیار ۱۷ گرم بر لیتر مربوط به افزایش ۱٪ الکل بالقوه است و با درجه بریکس متفاوت است) جهت رسیدن به ۲۲.۰° Bx: مقدار ${sugarNeededGrams} گرم شکر را در مقداری شربت گرم حل کنید (انبساط حجمی ناشی از انحلال شکر: +${chaptalPlan.volumeExpansionL} لیتر ← حجم نهایی فاز مایع: ${chaptalPlan.finalLiquidVolumeL} لیتر).`,
         'محلول را به مخزن افزوده و کاملاً یکنواخت هم بزنید.',
         'بریکس و SG0 جدید را مجدداً اندازه‌گیری کرده و عدد پایه جدید ثبت کنید.'
       ]
@@ -784,9 +792,6 @@ export function evaluateEnologicalScenario(input: ScenarioInput): EnologyEvaluat
   // ----------------------------------------------------
   // 4. OFF-ODORS, CAP MANAGEMENT & FINING ISSUES
   // ----------------------------------------------------
-  const selectedStrain = input.yeastStrainId
-    ? getYeastStrainById(input.yeastStrainId, isRose)
-    : null;
 
   if (input.issues?.hasH2S) {
     const equip = input.equipmentProfile as

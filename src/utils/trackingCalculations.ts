@@ -2,8 +2,7 @@ import type { FermentationLogEntry, TankId } from '../types/tracking.ts';
 import type { ChemicalAddition } from '../types/database.ts';
 import {
   calculateDynamicSGTriggers,
-  getContinuousTargetFreeSO2ByPH,
-  getTargetFreeSO2ByPH
+  getContinuousTargetFreeSO2ByPH
 } from './enologyUtils.ts';
 import {
   MASTER_PROTOCOL_CONFIG,
@@ -157,6 +156,11 @@ export function analyzeLogEntryHealth(
   const isRose = tankId === 'tank-rose';
   const explicitStrainId = strainId;
   const activeStrain = explicitStrainId ? getYeastStrainById(explicitStrainId, isRose) : null;
+  const effectiveStrain = getYeastStrainById(
+    strainId ??
+      (log.isBenchmark ? undefined : enologyDb.getSelectedYeastIdForTank(tankId, log.batchId)),
+    isRose
+  );
   const sg = log.sg;
   const tempCap = log.tempCap;
   const ph = log.ph;
@@ -190,8 +194,9 @@ export function analyzeLogEntryHealth(
   let sgStatus: 'ideal' | 'good' | 'warning' | 'danger' = 'ideal';
   let sgNote = 'مطابق با منحنی استاندارد تخمیر';
   if (sg > triggers.initialSG + 0.003) {
+    const targetInitBrix = specificGravityToBrix(triggers.initialSG).toFixed(1);
     sgStatus = 'warning';
-    sgNote = 'غلیظ‌تر از بریکس اولیه هدف (۲۲° Bx)';
+    sgNote = `غلیظ‌تر از بریکس اولیه هدف (${targetInitBrix}° Bx)`;
     score -= 10;
   } else if (Math.abs(sg - triggers.sna1) <= practicalTol) {
     sgNote = 'نقطه طلایی تزریق SNA-1 (افت ۱۰٪ قند)';
@@ -208,10 +213,7 @@ export function analyzeLogEntryHealth(
     sgNote = 'زمان تزریق تانن فاز ۲ + جمع‌آوری هسته‌ها از کف';
   } else if (Math.abs(sg - triggers.sna3) <= practicalTol && (isRose || sg <= midTannin2AndSna3)) {
     sgNote = 'سقف نهایی تغذیه SNA-3 (صرفاً نیتروژن ۱۰۰٪ ارگانیک Fermaid O)';
-  } else if (
-    !isRose &&
-    (Math.abs(sg - triggers.pressingSG) <= sgTol || Math.abs(sg - triggers.pressingSG) <= practicalTol)
-  ) {
+  } else if (!isRose && Math.abs(sg - triggers.pressingSG) <= practicalTol) {
     sgNote = 'نقطه طلایی پرسینگ و جداسازی پوست انگور رشه';
   } else if (sg <= drynessTargetSG + 0.001) {
     sgNote = 'SG در محدوده هدف خشکی (احتمال پایان تخمیر — نیازمند ثبات ۴۸ ساعته هیدرومتر و تایید آزمون قند احیاکننده Clinitest < 2 g/L)';
@@ -234,7 +236,19 @@ export function analyzeLogEntryHealth(
 
   if (sg <= 0.995) {
     tempTargetRange = '14–16 °C (نگهداری) / 0–2 °C (سرمازدایی)';
-    if (tempCap > 24.0) {
+    if (log.dayNumber <= 10) {
+      if (tempCap > 26.5) {
+        tempStatus = 'danger';
+        tempNote = 'خطر جدی اکسیداسیون و فعالیت استوباکتر در شراب تمام‌شده!';
+        score -= 35;
+      } else if (tempCap > 24.5) {
+        tempStatus = 'warning';
+        tempNote = 'دمای شراب تازه‌خشک‌شده بالاست؛ به تدریج به ۱۴–۱۶ درجه کاهش دهید';
+        score -= 18;
+      } else {
+        tempNote = 'دمای ته‌نشینی اولیه پیش از سیفون روز ۱۰ مناسب است';
+      }
+    } else if (tempCap > 24.0) {
       tempStatus = 'danger';
       tempNote = 'خطر جدی اکسیداسیون و فعالیت استوباکتر در شراب تمام‌شده!';
       score -= 35;
@@ -323,9 +337,7 @@ export function analyzeLogEntryHealth(
   parameters.push({
     paramName: 'اسیدیته فعال (pH)',
     value: ph.toFixed(2),
-    targetRange: isRose
-      ? `${(idealPH - 0.04).toFixed(2)}–${(idealPH + 0.06).toFixed(2)}`
-      : `${(idealPH - 0.04).toFixed(2)}–${(idealPH + 0.06).toFixed(2)}`,
+    targetRange: `${(idealPH - 0.10).toFixed(2)}–${(idealPH + 0.10).toFixed(2)}`,
     status: phStatus,
     note: phNote
   });
@@ -373,8 +385,6 @@ export function analyzeLogEntryHealth(
   if (log.freeSO2 !== undefined && log.freeSO2 >= 0) {
     const effectivePhForSo2 = log.phMeasured === false ? (isRose ? plan.params.targetRosePH : plan.params.targetRedPH) : ph;
     const pHTarget = getContinuousTargetFreeSO2ByPH(effectivePhForSo2, isRose);
-    // Keep reference to getTargetFreeSO2ByPH so all imports remain utilized
-    void getTargetFreeSO2ByPH(effectivePhForSo2, isRose);
     let so2Status: 'ideal' | 'good' | 'warning' | 'danger' = 'ideal';
     let so2Note = 'سطح سولفیت آزاد متناسب با pH و مرحله فرآیند';
     let so2TargetStr = sg > 1.005 ? '≤ 35 mg/L (در حین تخمیر)' : `${pHTarget.min}–${pHTarget.max} mg/L (هدف ${pHTarget.target})`;
@@ -443,12 +453,18 @@ export function analyzeLogEntryHealth(
   // Stage-specific tailored descriptions
   void dynTriggers;
   if (log.dayNumber === 0 || sg >= triggers.initialSG - 0.002) {
+    const effectiveYeastGrams =
+      Math.round(
+        effectiveStrain.recommendedDoseGL *
+          (isRose ? plan.volumes.roseClarifiedFermentL : plan.volumes.redLiquidFermentPerTankL) *
+          100
+      ) / 100;
     if (isRose) {
       detailedDescription = `آنالیز شیره سانیه رُزه در روز پذیرش و شفاف‌سازی سرد (Débourbage) کاملاً ایده‌آل است. بریکس اولیه ۲۲.۰° Bx و SG اولیه ${triggers.initialSG.toFixed(3)} پتانسیل تولید الکل طبیعی ~۱۳.۸٪ را فراهم می‌آورد. pH اولیه ${ph} در محدوده استاندارد پایداری رنگ مرجانی و مهار میکروبی قرار دارد.`;
-      recommendedAction = `شفاف‌سازی سرد (Débourbage) با ${plan.dosages.pecticEnzymeRoseG}g آنزیم پکتیناز و ${plan.dosages.bentoniteRoseG}g بنتونیت، سیفون فاز زلال و گرم کردن تا ۱۸°C، قفل pH روی ${idealPH} با تانن سفید (${plan.dosages.whiteTanninRoseFermentG}g) و تلقیح ${plan.dosages.yeastRoseG}g مخمر RC-212 با ${plan.dosages.goFermRoseG}g Go-Ferm.`;
+      recommendedAction = `شفاف‌سازی سرد (Débourbage) با ${plan.dosages.pecticEnzymeRoseG}g آنزیم پکتیناز و ${plan.dosages.bentoniteRoseG}g بنتونیت، سیفون فاز زلال و گرم کردن تا ۱۸°C، قفل pH روی ${idealPH} با تانن سفید (${plan.dosages.whiteTanninRoseFermentG}g) و تلقیح ${effectiveYeastGrams}g مخمر ${effectiveStrain.code} با ${plan.dosages.goFermRoseG}g Go-Ferm.`;
     } else {
       detailedDescription = `آنالیز شربت انگور رشه سردشت در روز پذیرش کاملاً ایده‌آل است. بریکس اولیه ۲۲.۰° Bx و SG اولیه ${triggers.initialSG.toFixed(3)} (قند واقعی ۲۴۰ گرم بر لیتر با احتساب چگالی) پتانسیل تولید الکل طبیعی ~۱۳.۸٪ (معادله غیرخطی) را فراهم می‌آورد. pH اولیه ${ph} در محدوده استاندارد پایداری رنگ مرجانی و مهار میکروبی قرار دارد.`;
-      recommendedAction = 'تزریق دوز اول KMS بر اساس حجم مایع مؤثر، قفل pH روی ۳.۵۲ با اسید تارتاریک، ۷.۵ ساعت استراحت آنزیمی برای شکست پکتین و تلقیح مخمر RC-212 هم‌دماشده.';
+      recommendedAction = `تزریق دوز اول KMS بر اساس حجم مایع مؤثر، قفل pH روی ۳.۵۲ با اسید تارتاریک، ۷.۵ ساعت استراحت آنزیمی برای شکست پکتین و تلقیح ${effectiveYeastGrams}g مخمر ${effectiveStrain.code} هم‌دماشده.`;
     }
   } else if (sg >= triggers.sna1 - practicalTol) {
     detailedDescription = isRose
@@ -1249,8 +1265,17 @@ export function detectQuickLogTypoShield(params: {
   previousTempCap?: number;
   tempCap?: number;
   daysElapsed?: number;
+  sugarAddedIntentionally?: boolean;
 }): QuickLogTypoShieldAlert | null {
-  const { measuredSG, trueSG, previousSG, previousTempCap, tempCap, daysElapsed } = params;
+  const {
+    measuredSG,
+    trueSG,
+    previousSG,
+    previousTempCap,
+    tempCap,
+    daysElapsed,
+    sugarAddedIntentionally
+  } = params;
 
   // Generate candidate SG transpositions from measuredSG formatted to 3 decimals 1.d1d2d3
   const formatted = measuredSG.toFixed(3);
@@ -1275,7 +1300,7 @@ export function detectQuickLogTypoShield(params: {
   }
 
   // Case A: Unexpected SG Jump Up
-  if (previousSG !== undefined && trueSG > previousSG + 0.003) {
+  if (!sugarAddedIntentionally && previousSG !== undefined && trueSG > previousSG + 0.003) {
     const candSG = candidates.find(
       (c) => c <= previousSG + 0.001 && c >= 0.988 && previousSG - c <= 0.04
     );

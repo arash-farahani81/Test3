@@ -15,7 +15,8 @@ import {
   DEFAULT_EQUIPMENT_PROFILE_PRO,
   EQUIPMENT_PRESET_ARTISAN_HOME,
   EQUIPMENT_PRESET_MINIMAL_PLUS,
-  type CellarEquipmentProfile
+  type CellarEquipmentProfile,
+  type NutrientInventoryGrams
 } from '../types/index.ts';
 import {
   evaluateEquipmentCapabilities,
@@ -25,6 +26,10 @@ import {
   useEnologyUi,
   type ScalePrecisionGrams
 } from '../context/EnologyUiContext.tsx';
+import {
+  getDefaultIdealNutrientInventoryGrams,
+  optimizeNutrientScheduleFromInventory
+} from '../utils/nutrientInventoryOptimizer.ts';
 
 export interface EquipmentOnboardingWizardModalProps {
   isOpen: boolean;
@@ -64,15 +69,23 @@ interface WizardDraftState {
 
 function buildInitialDraft(
   profile: CellarEquipmentProfile,
-  scalePrecision: ScalePrecisionGrams
+  scalePrecision: ScalePrecisionGrams,
+  grapeWeightKg: number = 400
 ): WizardDraftState {
   const isMinimal = profile.presetId === 'minimal_plus_kit';
   const isPro = profile.presetId === 'full_sardasht_pro';
+  const defaultInv =
+    profile.nutrientInventoryGrams ??
+    getDefaultIdealNutrientInventoryGrams(
+      grapeWeightKg,
+      profile.producesRoseSaignee
+    );
 
   return {
     profile: {
       ...profile,
-      reagents: { ...profile.reagents }
+      reagents: { ...profile.reagents },
+      nutrientInventoryGrams: { ...defaultInv }
     },
     densityModeUi: profile.densityInstrument,
     scalePrecisionGrams: profile.hasPrecisionScale001g ? scalePrecision : 1,
@@ -109,20 +122,32 @@ export const EquipmentOnboardingWizardModal: React.FC<
     equipmentProfile,
     scalePrecision,
     isEquipmentOnboardingCompleted,
-    saveEquipmentProfile
+    saveEquipmentProfile,
+    activeBatch,
+    selectedYeastByTank
   } = useEnologyUi();
 
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
   const [draft, setDraft] = useState<WizardDraftState>(() =>
-    buildInitialDraft(equipmentProfile, scalePrecision)
+    buildInitialDraft(
+      equipmentProfile,
+      scalePrecision,
+      activeBatch?.initialWeightKg ?? 400
+    )
   );
 
   useEffect(() => {
     if (isOpen) {
-      setDraft(buildInitialDraft(equipmentProfile, scalePrecision));
+      setDraft(
+        buildInitialDraft(
+          equipmentProfile,
+          scalePrecision,
+          activeBatch?.initialWeightKg ?? 400
+        )
+      );
       setStep(1);
     }
-  }, [isOpen, equipmentProfile, scalePrecision]);
+  }, [isOpen, equipmentProfile, scalePrecision, activeBatch?.initialWeightKg]);
 
   const adapterInput = useMemo<EquipmentProfileInput>(() => {
     return {
@@ -142,6 +167,27 @@ export const EquipmentOnboardingWizardModal: React.FC<
   const draftCapabilities = useMemo(
     () => evaluateEquipmentCapabilities(adapterInput),
     [adapterInput]
+  );
+
+  const draftNutrientOptimization = useMemo(
+    () =>
+      optimizeNutrientScheduleFromInventory({
+        inventory: draft.profile.nutrientInventoryGrams,
+        redTankCount:
+          draft.profile.redTankConfig === 'single_primary' ||
+          draft.profile.primaryTankCount === 1
+            ? 1
+            : 2,
+        produceRose: draft.profile.producesRoseSaignee,
+        selectedYeastByTank
+      }),
+    [
+      draft.profile.nutrientInventoryGrams,
+      draft.profile.redTankConfig,
+      draft.profile.primaryTankCount,
+      draft.profile.producesRoseSaignee,
+      selectedYeastByTank
+    ]
   );
 
   if (!isOpen) {
@@ -204,6 +250,46 @@ export const EquipmentOnboardingWizardModal: React.FC<
           ...prev.profile,
           presetId: 'custom',
           reagents: nextCoreReagents
+        }
+      };
+    });
+  };
+
+  const updateDraftNutrientInventory = (
+    patch: Partial<NutrientInventoryGrams>
+  ) => {
+    setDraft((prev) => {
+      const baseInv =
+        prev.profile.nutrientInventoryGrams ??
+        getDefaultIdealNutrientInventoryGrams(
+          activeBatch?.initialWeightKg ?? 400,
+          prev.profile.producesRoseSaignee
+        );
+      const nextInv: NutrientInventoryGrams = {
+        ...baseInv,
+        ...patch
+      };
+      const nextReagents11: ExtendedReagentsDraft = nextInv.isCustomInventoryActive
+        ? {
+            ...prev.reagents11,
+            hasGoFerm: nextInv.goFermGrams > 0,
+            hasFermaidO: nextInv.fermaidOGrams > 0,
+            hasFermaidKOrDap: nextInv.fermaidKGrams + nextInv.dapGrams > 0
+          }
+        : prev.reagents11;
+      const nextCoreReagents: CellarEquipmentProfile['reagents'] = {
+        ...prev.profile.reagents,
+        hasFermaidOAndK:
+          nextReagents11.hasFermaidO || nextReagents11.hasFermaidKOrDap
+      };
+      return {
+        ...prev,
+        reagents11: nextReagents11,
+        profile: {
+          ...prev.profile,
+          presetId: 'custom',
+          reagents: nextCoreReagents,
+          nutrientInventoryGrams: nextInv
         }
       };
     });
@@ -1085,6 +1171,176 @@ export const EquipmentOnboardingWizardModal: React.FC<
                   );
                 })}
               </div>
+
+              {/* Nutrient Gram Inventory & Smart SNA Optimizer Card */}
+              <div
+                data-testid="equipment-wizard-nutrient-inventory-card"
+                className="rounded-2xl border border-line bg-paper p-4 mt-4 space-y-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-bold text-ink">
+                    موجودی وزنی مغذیهای مخمر در کارگاه (تنظیم هوشمند برنامه دوزینگ SNA)
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      data-testid="toggle-custom-nutrient-inventory"
+                      onClick={() =>
+                        updateDraftNutrientInventory({
+                          isCustomInventoryActive:
+                            !draft.profile.nutrientInventoryGrams
+                              ?.isCustomInventoryActive
+                        })
+                      }
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-bold cursor-pointer ${
+                        draft.profile.nutrientInventoryGrams
+                          ?.isCustomInventoryActive
+                          ? 'bg-wine text-white border-wine'
+                          : 'bg-surface text-ink border-line'
+                      }`}
+                    >
+                      {draft.profile.nutrientInventoryGrams
+                        ?.isCustomInventoryActive
+                        ? 'بهینهسازی بر اساس گرم موجودی فعال است'
+                        : 'فعالسازی وارد کردن گرم دقیق موجودی من'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateDraftNutrientInventory({
+                          ...getDefaultIdealNutrientInventoryGrams(
+                            activeBatch?.initialWeightKg ?? 400,
+                            draft.profile.producesRoseSaignee
+                          ),
+                          isCustomInventoryActive: true
+                        })
+                      }
+                      className="px-3 py-1.5 rounded-lg border border-line bg-surface text-xs font-bold text-ink cursor-pointer"
+                    >
+                      پر کردن با مقدار ایدهآل بچ
+                    </button>
+                  </div>
+                </div>
+
+                {(() => {
+                  const inv =
+                    draft.profile.nutrientInventoryGrams ??
+                    getDefaultIdealNutrientInventoryGrams(
+                      activeBatch?.initialWeightKg ?? 400,
+                      draft.profile.producesRoseSaignee
+                    );
+                  const fields: Array<{
+                    key: keyof Omit<
+                      NutrientInventoryGrams,
+                      'isCustomInventoryActive'
+                    >;
+                    label: string;
+                    step: number;
+                  }> = [
+                    { key: 'fermaidOGrams', label: 'Fermaid O (g)', step: 1 },
+                    { key: 'fermaidKGrams', label: 'Fermaid K (g)', step: 1 },
+                    { key: 'dapGrams', label: 'DAP (g)', step: 1 },
+                    { key: 'goFermGrams', label: 'Go-Ferm (g)', step: 1 },
+                    { key: 'zincSulfateGrams', label: 'ZnSO4 (g)', step: 0.1 }
+                  ];
+                  return (
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                      {fields.map((f) => (
+                        <div key={f.key} className="space-y-1">
+                          <label className="block text-xs font-bold text-ink-soft">
+                            {f.label}
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={f.step}
+                            value={inv[f.key]}
+                            onChange={(e) =>
+                              updateDraftNutrientInventory({
+                                [f.key]: Math.max(
+                                  0,
+                                  Number(e.target.value) || 0
+                                ),
+                                isCustomInventoryActive: true
+                              })
+                            }
+                            className="w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-bold ltr-metric text-ink"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                <div
+                  data-testid="wizard-nutrient-optimization-preview"
+                  className="rounded-xl border border-line bg-surface p-3 mt-3 text-xs space-y-2"
+                >
+                  <div className="font-bold text-ink">
+                    {draftNutrientOptimization.strategySummaryFa}
+                  </div>
+                  {(() => {
+                    const tankA = draftNutrientOptimization.tanks['tank-a'];
+                    return (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-ink-soft">
+                        <div className="rounded-lg border border-line bg-paper p-2">
+                          <span className="font-bold text-ink block">
+                            نوبت اول (SNA-1):
+                          </span>
+                          <span className="ltr-metric font-bold text-wine">
+                            {tankA.sna1.fermaidOGrams}g Fermaid O
+                            {tankA.sna1.fermaidKGrams > 0
+                              ? ` + ${tankA.sna1.fermaidKGrams}g Fermaid K`
+                              : ''}
+                          </span>
+                        </div>
+                        <div className="rounded-lg border border-line bg-paper p-2">
+                          <span className="font-bold text-ink block">
+                            نوبت دوم (SNA-2):
+                          </span>
+                          <span className="ltr-metric font-bold text-wine">
+                            {tankA.sna2.fermaidKGrams}g K + {tankA.sna2.dapGrams}
+                            g DAP + {tankA.sna2.zincGrams}g Zn
+                            {tankA.sna2.fermaidOGrams > 0
+                              ? ` + ${tankA.sna2.fermaidOGrams}g Fermaid O`
+                              : ''}
+                          </span>
+                        </div>
+                        <div className="rounded-lg border border-line bg-paper p-2">
+                          <span className="font-bold text-ink block">
+                            نوبت سوم (SNA-3):
+                          </span>
+                          <span className="ltr-metric font-bold text-wine">
+                            {tankA.sna3.fermaidOGrams}g Fermaid O
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {draftNutrientOptimization.hasNitrogenDeficit && (
+                    <div
+                      data-testid="wizard-nutrient-deficit-alert"
+                      className="rounded-lg border border-danger/50 bg-danger/10 p-2.5 mt-2 text-xs text-ink space-y-1.5"
+                    >
+                      <div className="font-bold text-danger">
+                        {draftNutrientOptimization.deficitAlertFa}
+                      </div>
+                      <div className="space-y-1">
+                        {draftNutrientOptimization.recommendations.map((rec) => (
+                          <div key={rec.id} className="leading-relaxed">
+                            <span className="font-bold">{rec.titleFa}: </span>
+                            <span className="font-bold text-wine">
+                              {rec.amountTextFa}
+                            </span>{' '}
+                            — <span>{rec.explanationFa}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -1148,6 +1404,10 @@ export const EquipmentOnboardingWizardModal: React.FC<
                     {draftCapabilities.activeSubstitutionsCount} تطبیق علمی فعال
                   </div>
                 </div>
+              </div>
+
+              <div className="bg-surface border border-line rounded-xl p-3 text-xs font-bold text-ink">
+                {`وضعیت برنامه تغذیه مخمر (SNA): ${draftNutrientOptimization.strategySummaryFa}`}
               </div>
 
               {draftCapabilities.missingReagentsListFa.length > 0 && (

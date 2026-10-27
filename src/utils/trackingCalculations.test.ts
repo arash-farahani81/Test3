@@ -800,6 +800,15 @@ test('Ideas 4 & 5: predictFermentationCompletion populates nextCriticalStation a
   assert.equal(jumpTypo.field, 'sg');
   assert.equal(jumpTypo.suggestedValue, 1.008);
 
+  const intentionalSugarJump = detectQuickLogTypoShield({
+    measuredSG: 1.080,
+    trueSG: 1.080,
+    previousSG: 1.018,
+    daysElapsed: 1,
+    sugarAddedIntentionally: true
+  });
+  assert.equal(intentionalSugarJump, null, 'Must not warn on SG increase when sugarAddedIntentionally is true');
+
   // Idea 5b: Extreme 1-day drop transposition (1.008 typed when previousSG = 1.088 -> suggests 1.080)
   const plungeTypo = detectQuickLogTypoShield({
     measuredSG: 1.008,

@@ -897,5 +897,129 @@ test('EnologyDatabaseService: deleteBatch atomic cascade deletion and addLog 150
   enologyDb.resetToFactoryDefaults();
 });
 
+test('enologyDb preserves multiple same-day corrupt JSON recoveries, preserves undated local records in merge mode, and saves pre-replace backup snapshot', () => {
+  enologyDb.resetToFactoryDefaults();
 
+  const store = new Map<string, string>();
+  const originalLocalStorage = (globalThis as { localStorage?: Storage }).localStorage;
+  const mockStorage: Storage = {
+    get length() {
+      return store.size;
+    },
+    clear() {
+      store.clear();
+    },
+    getItem(key: string) {
+      return store.has(key) ? (store.get(key) ?? null) : null;
+    },
+    key(index: number) {
+      return Array.from(store.keys())[index] ?? null;
+    },
+    removeItem(key: string) {
+      store.delete(key);
+    },
+    setItem(key: string, value: string) {
+      store.set(key, String(value));
+    }
+  };
+  (globalThis as { localStorage?: Storage }).localStorage = mockStorage;
 
+  try {
+    const dbInternal = enologyDb as unknown as {
+      parseArrayWithSalvage: (
+        key: string,
+        raw: string,
+        schema: unknown,
+        fallback: unknown[]
+      ) => Array<{ id: string }>;
+    };
+
+    // 1. Two corrupt JSON recoveries on the same key and same day must not overwrite each other
+    dbInternal.parseArrayWithSalvage(
+      'enology_db_logs_v1_same_day',
+      '{broken_json_first',
+      FermentationLogEntrySchema,
+      []
+    );
+    dbInternal.parseArrayWithSalvage(
+      'enology_db_logs_v1_same_day',
+      '{broken_json_second',
+      FermentationLogEntrySchema,
+      []
+    );
+
+    const dateSuffix = new Date().toISOString().slice(0, 10);
+    const baseCorruptKey = `corrupt_enology_db_logs_v1_same_day_${dateSuffix}`;
+    assert.equal(mockStorage.getItem(baseCorruptKey), '{broken_json_first');
+
+    const timestampedKeys = Array.from(store.keys()).filter((k) =>
+      k.startsWith(`${baseCorruptKey}_`)
+    );
+    assert.equal(timestampedKeys.length, 1, 'Second same-day corrupt recovery must use timestamped suffix');
+    assert.equal(mockStorage.getItem(timestampedKeys[0]), '{broken_json_second');
+
+    // 2. Undated local records (existingTime === 0 && incomingTime === 0) must be preserved in merge mode
+    const exportJson = enologyDb.exportDatabaseJSON();
+    const parsedExport = JSON.parse(exportJson) as {
+      batches: Array<{
+        id: string;
+        name: string;
+        grapeVariety: string;
+        vintageYear: number;
+        initialWeightKg: number;
+        targetStyle: 'red' | 'rose' | 'both';
+        status: 'planning' | 'active_fermentation' | 'mlf_aging' | 'bottled';
+        startDate: string;
+        notes?: string;
+        isDemo?: boolean;
+        updatedAtMs?: number;
+      }>;
+    };
+
+    // Mutate local batch-rasha-1403 to be non-demo and undated with custom local name
+    const localBatch = enologyDb.getBatchById('batch-rasha-1403');
+    assert.ok(localBatch);
+    localBatch.name = 'نسخه محلی ویرایش شده بدون تاریخ';
+    localBatch.isDemo = false;
+    delete (localBatch as { updatedAtMs?: number }).updatedAtMs;
+
+    // Prepare incoming backup where batch-rasha-1403 is also undated (updatedAtMs: undefined) with an older/different name
+    parsedExport.batches[0].name = 'نسخه قدیمی ورودی بدون تاریخ';
+    parsedExport.batches[0].isDemo = false;
+    delete parsedExport.batches[0].updatedAtMs;
+
+    const mergeResult = enologyDb.importDatabaseJSON(JSON.stringify(parsedExport), 'merge');
+    assert.equal(mergeResult.success, true);
+    assert.equal(
+      enologyDb.getBatchById('batch-rasha-1403')?.name,
+      'نسخه محلی ویرایش شده بدون تاریخ',
+      'Merge mode must preserve local undated non-demo record over undated incoming record'
+    );
+
+    // 3. Replace mode must save pre-replace snapshot to 'enology_pre_replace_backup_snapshot_v1'
+    const replaceResult = enologyDb.importDatabaseJSON(JSON.stringify(parsedExport), 'replace');
+    assert.equal(replaceResult.success, true);
+    const preReplaceSnapshot = mockStorage.getItem('enology_pre_replace_backup_snapshot_v1');
+    assert.ok(preReplaceSnapshot, 'Replace mode must write enology_pre_replace_backup_snapshot_v1');
+    assert.ok(
+      preReplaceSnapshot.includes('نسخه محلی ویرایش شده بدون تاریخ'),
+      'Pre-replace snapshot must contain the state prior to replacement'
+    );
+    assert.equal(
+      enologyDb.getBatchById('batch-rasha-1403')?.name,
+      'نسخه قدیمی ورودی بدون تاریخ'
+    );
+
+    // 4. Malformed JSON must return specific JSON syntax error message
+    const badJsonResult = enologyDb.importDatabaseJSON('{not_valid_json', 'replace');
+    assert.equal(badJsonResult.success, false);
+    assert.equal(badJsonResult.message, 'فایل پشتیبان نامعتبر است: خطای ساختار JSON.');
+  } finally {
+    if (originalLocalStorage === undefined) {
+      delete (globalThis as { localStorage?: Storage }).localStorage;
+    } else {
+      (globalThis as { localStorage?: Storage }).localStorage = originalLocalStorage;
+    }
+    enologyDb.resetToFactoryDefaults();
+  }
+});

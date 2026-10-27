@@ -242,8 +242,8 @@ test('evaluateEnologicalScenario: zero score penalty on refractometer informatio
   assert.ok(phAcidActions[0].title.includes('تناقض آزمایشگاهی'));
 });
 
-test('evaluateEnologicalScenario: Chaptalization 10.8 g/L stoichiometry, sluggish Day 8 KMS guard, high-pH SO2 threshold, unified Tartaric Acid, and >=4 danger visibleActions', () => {
-  // 1. Chaptalization at 18.5 °Bx in 132 L -> Math.round(3.5 * 10.8 * 132) = 4990 g
+test('evaluateEnologicalScenario: Chaptalization mass-balance stoichiometry, sluggish Day 8 KMS guard, high-pH SO2 threshold, unified Tartaric Acid, and >=4 danger visibleActions', () => {
+  // 1. Chaptalization at 18.5 °Bx in 132 L -> exact species mass balance = 6375 g
   const chaptalRes = evaluateEnologicalScenario({
     batchVolumeL: 132,
     currentSG: 1.076,
@@ -256,7 +256,7 @@ test('evaluateEnologicalScenario: Chaptalization 10.8 g/L stoichiometry, sluggis
   });
   const chaptalAction = chaptalRes.actions.find((a) => a.title.includes('بریکس اولیه پایین'));
   assert.ok(chaptalAction);
-  assert.equal(chaptalAction.calculatedRecipe?.[0].amount, '4990');
+  assert.equal(chaptalAction.calculatedRecipe?.[0].amount, '6375');
 
   // 2. Sluggish fermentation on dayNumber: 8 with currentSG: 1.040 and freeSO2: 12 must NOT recommend adding KMS
   const sluggishDay8Res = evaluateEnologicalScenario({

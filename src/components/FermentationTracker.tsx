@@ -67,6 +67,7 @@ import {
 } from '../data/smartLoggingPresets.ts';
 import { useEnologyUi } from '../context/EnologyUiContext.tsx';
 import { getCurrentPersianDateTimeStr } from '../utils/persianDate.ts';
+import { formatProtocolTextWithYeast } from '../data/yeastStrainsData.ts';
 
 interface FermentationTrackerProps {
   onNavigateToTestingGuide?: (
@@ -571,7 +572,10 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
       return {
         level: 'danger',
         title: 'هشدار فوق بحرانی دمای کلاهک (۲۹.۵°C)!',
-        text: 'دما به نقطه شکست غشای مخمر RC-212 رسیده است. فوراً ۳ بطری ۱.۵ لیتری آب یخ‌زده درون کلاهک قرار دهید و اتاق را خنک کنید.'
+        text: formatProtocolTextWithYeast(
+          'دما به نقطه شکست غشای مخمر RC-212 رسیده است. فوراً ۳ بطری ۱.۵ لیتری آب یخ‌زده درون کلاهک قرار دهید و اتاق را خنک کنید.',
+          currentTankYeast
+        )
       };
     }
     if (latestLog.tempCap >= 28.5) {
@@ -2392,7 +2396,7 @@ export const FermentationTracker: React.FC<FermentationTrackerProps> = ({
                         <g>
                           <line x1={paddingX} y1={yDanger} x2={chartW - 20} y2={yDanger} stroke="#DC2626" strokeDasharray="4 4" strokeWidth="2" />
                           <text x={paddingX + 180} y={yDanger - 6} fill="#DC2626" fontSize="10" textAnchor="middle" fontWeight="bold">
-                            خط قرمز بحران کارگاه (۲۹.۵°C - مرگ مخمر RC-212)
+                            {`خط قرمز بحران کارگاه (۲۹.۵°C - مرگ مخمر ${currentTankYeast.code})`}
                           </text>
 
                           <line x1={paddingX} y1={ySafeCeiling} x2={chartW - 20} y2={ySafeCeiling} stroke="#F59E0B" strokeDasharray="3 3" strokeWidth="1" />

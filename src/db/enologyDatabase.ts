@@ -78,6 +78,20 @@ function mirrorToIndexedDB(storeKey: string, data: unknown): void {
       try {
         const db = req.result;
         const tx = db.transaction('kv_mirror', 'readwrite');
+        tx.oncomplete = () => {
+          try {
+            db.close();
+          } catch {
+            // Ignore close errors
+          }
+        };
+        tx.onerror = () => {
+          try {
+            db.close();
+          } catch {
+            // Ignore close errors
+          }
+        };
         tx.objectStore('kv_mirror').put(data, storeKey);
       } catch {
         // Ignore non-critical IndexedDB transaction errors
@@ -306,9 +320,14 @@ class EnologyDatabaseService {
     if (typeof localStorage === 'undefined') return;
     try {
       const dateSuffix = new Date().toISOString().slice(0, 10);
-      localStorage.setItem(`corrupt_${key}_${dateSuffix}`, rawValue);
-    } catch {
-      // Ignore storage failure when preserving corrupt payload
+      const baseCorruptKey = `corrupt_${key}_${dateSuffix}`;
+      const targetCorruptKey =
+        localStorage.getItem(baseCorruptKey) !== null
+          ? `${baseCorruptKey}_${Date.now()}`
+          : baseCorruptKey;
+      localStorage.setItem(targetCorruptKey, rawValue);
+    } catch (err) {
+      console.warn('Failed to preserve corrupt raw value:', err);
     }
   }
 
@@ -439,6 +458,11 @@ class EnologyDatabaseService {
           try {
             const db = req.result;
             if (!db.objectStoreNames.contains('kv_mirror')) {
+              try {
+                db.close();
+              } catch {
+                // Ignore close errors
+              }
               resolve(false);
               return;
             }
@@ -521,7 +545,14 @@ class EnologyDatabaseService {
                 this.calculations = mergeIfSalvaged(DB_STORAGE_KEY_CALCS, this.calculations, items);
                 this.handleStorageSetItem(DB_STORAGE_KEY_CALCS, JSON.stringify(this.calculations));
               })
-            ]).then(() => resolve(hydratedAny));
+            ]).then(() => {
+              try {
+                db.close();
+              } catch {
+                // Ignore close errors
+              }
+              resolve(hydratedAny);
+            });
           } catch {
             resolve(false);
           }
@@ -1652,17 +1683,31 @@ class EnologyDatabaseService {
     jsonString: string,
     mode: 'replace' | 'merge' = 'replace'
   ): { success: boolean; message: string } {
+    let parsedObj: unknown;
     try {
-      const parsedObj: unknown = JSON.parse(jsonString);
-      const result = EnologyDatabaseExportSchema.safeParse(parsedObj);
+      parsedObj = JSON.parse(jsonString);
+    } catch {
+      return {
+        success: false,
+        message: 'فایل پشتیبان نامعتبر است: خطای ساختار JSON.'
+      };
+    }
 
-      if (!result.success) {
-        return {
-          success: false,
-          message: 'فایل پشتیبان نامعتبر است: ساختار داده با پروتکل کارخانه همخوانی ندارد.'
-        };
-      }
+    const result = EnologyDatabaseExportSchema.safeParse(parsedObj);
+    if (!result.success) {
+      return {
+        success: false,
+        message: 'فایل پشتیبان نامعتبر است: ساختار داده با پروتکل کارخانه همخوانی ندارد.'
+      };
+    }
 
+    const prevBatches = [...this.batches];
+    const prevLogs = [...this.logs];
+    const prevAdditions = [...this.additions];
+    const prevAnalyses = [...this.analyses];
+    const prevCalculations = [...this.calculations];
+
+    try {
       const mergeById = <T extends { id: string }>(existing: T[], incoming: T[]): T[] => {
         const map = new Map<string, T>();
         for (const item of existing) {
@@ -1682,6 +1727,15 @@ class EnologyDatabaseService {
             (incomingItem as { updatedAtMs?: number; timestampMs?: number }).updatedAtMs ??
             (incomingItem as { timestampMs?: number }).timestampMs ??
             0;
+
+          if (existingTime === 0 && incomingTime === 0) {
+            const existingIsDemo = (existingItem as { isDemo?: boolean }).isDemo === true;
+            const incomingIsDemo = (incomingItem as { isDemo?: boolean }).isDemo === true;
+            if (!existingIsDemo || incomingIsDemo) {
+              map.set(existingItem.id, existingItem);
+              continue;
+            }
+          }
 
           if (existingTime > incomingTime) {
             map.set(incomingItem.id, existingItem);
@@ -1727,6 +1781,17 @@ class EnologyDatabaseService {
         }
         this.incrementChangesSinceBackup();
       } else {
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(
+              'enology_pre_replace_backup_snapshot_v1',
+              this.buildExportDatabaseJSON()
+            );
+          }
+        } catch (snapshotErr) {
+          console.warn('Could not save pre-replace snapshot:', snapshotErr);
+        }
+
         this.batches = result.data.batches;
         this.logs = result.data.fermentationLogs;
         this.additions = result.data.chemicalAdditions;
@@ -1761,9 +1826,14 @@ class EnologyDatabaseService {
             : `پایگاه داده با موفقیت بازنشانی و بارگذاری شد (${result.data.fermentationLogs.length} لاگ، ${result.data.batches.length} بچ)`
       };
     } catch {
+      this.batches = prevBatches;
+      this.logs = prevLogs;
+      this.additions = prevAdditions;
+      this.analyses = prevAnalyses;
+      this.calculations = prevCalculations;
       return {
         success: false,
-        message: 'فایل پشتیبان نامعتبر است: ساختار داده با پروتکل کارخانه همخوانی ندارد.'
+        message: 'خطا در ذخیره‌سازی پایگاه داده: حافظه مرورگر پر یا مسدود است.'
       };
     }
   }

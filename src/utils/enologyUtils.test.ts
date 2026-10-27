@@ -41,7 +41,8 @@ test('getEffectiveLiquidVolume uses 0.84 true liquid-to-mash ratio (132L / 157L)
   assert.equal(getEffectiveLiquidVolume(100, 'liquid_phase'), 100);
   assert.equal(getEffectiveLiquidVolume(100, 'liquid'), 100);
   assert.equal(getEffectiveLiquidVolume(100, true), 84);
-  assert.equal(getEffectiveLiquidVolume(132, true), 132);
+  assert.equal(getEffectiveLiquidVolume(132, true, 0.84), 110.88);
+  assert.equal(getEffectiveLiquidVolume(132, false, 0.84), 132);
   // Explicit 'gross_mash' or 'must' always applies mashYieldFactor
   assert.equal(getEffectiveLiquidVolume(100, 'gross_mash'), 84);
   assert.equal(getEffectiveLiquidVolume(100, 'must'), 84);
@@ -314,6 +315,7 @@ test('normalizeEnologyNumericInput, 15.5C/32C correctHydrometer, getContinuousTa
   assert.equal(normalizeEnologyNumericInput('۱۰۸۳', 'sg'), 1.083);
   assert.equal(normalizeEnologyNumericInput(993, 'sg'), 0.993);
   assert.equal(normalizeEnologyNumericInput('1,234.5', 'general'), 1234.5);
+  assert.equal(normalizeEnologyNumericInput('1.234,5', 'general'), 1234.5);
   assert.equal(normalizeEnologyNumericInput('1/2', 'general'), null);
   assert.equal(normalizeEnologyNumericInput('12abc', 'general'), null);
   assert.equal(normalizeEnologyNumericInput('abc', 'general'), null);
@@ -505,18 +507,26 @@ test('computeGraduatedSyringeMetrics: auto-selects barrelCapacityMl (1, 5, 50) a
   assert.equal(s50.majorTicks[5].ml, 50);
 });
 
-test('calculateChaptalization and calculateMolecularSO2 edge cases: sucrose volume expansion (0.62 L/kg), pH clamping, and double-discount guard', () => {
+test('calculateChaptalization and calculateMolecularSO2 edge cases: species mass balance, sucrose volume expansion (0.62 L/kg), and pH clamping', () => {
+  const chap100 = calculateChaptalization(18.0, 22.0, 100);
+  assert.equal(chap100.brixDeficit, 4.0);
+  assert.equal(chap100.sugarNeededGrams, 5508);
+  assert.equal(chap100.sugarNeededKg, 5.51);
+  assert.equal(chap100.gramsPerLiterPerBrix, 13.8);
+  assert.equal(chap100.volumeExpansionL, 3.41);
+  assert.equal(chap100.finalLiquidVolumeL, 103.41);
+
   const chap = calculateChaptalization(19.0, 22.0, 132);
   assert.equal(chap.brixDeficit, 3.0);
-  assert.equal(chap.sugarNeededGrams, 4277);
-  assert.equal(chap.sugarNeededKg, 4.28);
-  assert.equal(chap.volumeExpansionL, 2.65);
-  assert.equal(chap.finalLiquidVolumeL, 134.65);
+  assert.equal(chap.sugarNeededGrams, 5476);
+  assert.equal(chap.sugarNeededKg, 5.48);
+  assert.equal(chap.gramsPerLiterPerBrix, 13.8);
+  assert.equal(chap.volumeExpansionL, 3.4);
+  assert.equal(chap.finalLiquidVolumeL, 135.4);
 
-  // Passing boolean true on known liquid volume 132L must not double-discount
-  const chapNoDoubleDiscount = calculateChaptalization(19.0, 22.0, 132, true);
-  assert.equal(chapNoDoubleDiscount.sugarNeededGrams, 4277);
-  assert.equal(chapNoDoubleDiscount.finalLiquidVolumeL, 134.65);
+  const chapMash = calculateChaptalization(19.0, 22.0, 132, true);
+  assert.equal(chapMash.sugarNeededGrams, 4600);
+  assert.equal(chapMash.finalLiquidVolumeL, 113.73);
 
   // Extreme pH clamping in calculateMolecularSO2
   const mol42 = calculateMolecularSO2(50, 4.2);
@@ -593,4 +603,37 @@ test('evaluateChemicalAdditionCompatibility: flags enzyme within 30m of KMS, asc
   assert.equal(dapConflict.severity, 'warning');
 });
 
+test('buildCalculatorDirectAdditions: supports compensatory Fermaid K in sna_1 and Fermaid O in sna_2', () => {
+  const sna1WithK = buildCalculatorDirectAdditions({
+    kind: 'sna_1',
+    batchId: 'batch-1',
+    tankId: 'tank-a',
+    timestamp: '1405/07/01 - 12:00',
+    referenceVolumeL: 112.5,
+    primaryAmount: 18,
+    secondaryAmount: 12
+  });
+  assert.equal(sna1WithK.length, 2);
+  assert.equal(sna1WithK[0]?.compoundType, 'fermaid_o');
+  assert.equal(sna1WithK[0]?.amount, 18);
+  assert.equal(sna1WithK[1]?.compoundType, 'fermaid_k');
+  assert.equal(sna1WithK[1]?.amount, 12);
 
+  const sna2WithO = buildCalculatorDirectAdditions({
+    kind: 'sna_2',
+    batchId: 'batch-1',
+    tankId: 'tank-a',
+    timestamp: '1405/07/03 - 12:00',
+    referenceVolumeL: 112.5,
+    primaryAmount: 20,
+    secondaryAmount: 10,
+    tertiaryAmount: 0.22,
+    quaternaryAmount: 15
+  });
+  assert.equal(sna2WithO.length, 4);
+  assert.equal(sna2WithO[0]?.compoundType, 'fermaid_k');
+  assert.equal(sna2WithO[1]?.compoundType, 'dap');
+  assert.equal(sna2WithO[2]?.compoundType, 'zinc');
+  assert.equal(sna2WithO[3]?.compoundType, 'fermaid_o');
+  assert.equal(sna2WithO[3]?.amount, 15);
+});

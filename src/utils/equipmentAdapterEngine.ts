@@ -4,6 +4,7 @@ import {
   type ScalePrecisionGrams,
   type StockCompoundCategory
 } from './enologyUtils.ts';
+import { getYeastStrainById } from '../data/yeastStrainsData.ts';
 
 export type EquipmentProfileInput = Omit<
   CellarEquipmentProfile,
@@ -293,11 +294,11 @@ export function getMilestoneEquipmentAdaptation(
 
   if (milestoneId === 'yeast-inoculation') {
     if (!r.hasGoFerm) {
+      const strain = getYeastStrainById(profile.selectedYeastByTank?.['tank-a'], false);
       return {
         isApplicable: true,
         equipmentBadgeFa: 'آبرسانی مستقیم مخمر (بدون Go-Ferm)',
-        adaptedHowToFa:
-          'آبرسانی مخمر بدون Go-Ferm: مخمر RC-212 را در ۱۰ برابر وزن خود آب ۳۸ درجه حل کرده و طی ۲۰ دقیقه در ۲ مرحله با افزودن آب‌انگور هم‌دما کنید (ΔT < 5°C).',
+        adaptedHowToFa: `آبرسانی مخمر بدون Go-Ferm: مخمر ${strain.nameEn} را در ۱۰ برابر وزن خود آب ${strain.rehydrationTempC} درجه حل کرده و طی ۲۰ دقیقه در ۲ مرحله با افزودن آب‌انگور هم‌دما کنید (ΔT < 5°C).`,
         substitutionWarningFa:
           'فاقد Go-Ferm: از افزودن DAP یا Fermaid K به آب آبرسانی مخمر جداً خودداری کنید (سمیت مستقیم برای غشای مخمر).'
       };

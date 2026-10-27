@@ -1544,6 +1544,128 @@ test('computeHeroWindowArcMetrics: calculates semi-circular SVG arc ratio, dashO
   assert.equal(closeArc.dotY, 32);
 });
 
+test('evaluateRightNowQueue: dynamically rebalances sna-1 and sna-2-dap doses from custom nutrient inventory and surfaces deficit warning', () => {
+  const logs: FermentationLogEntry[] = [
+    {
+      id: 'log-opt-1',
+      tankId: 'tank-a',
+      dayNumber: 2,
+      dateTime: '۱۴۰۵/۰۷/۰۳',
+      stageTitle: 'شروع تخمیر',
+      brix: 21,
+      sg: 1.083,
+      tempCap: 22,
+      tempRoom: 20,
+      ph: 3.55,
+      freeSO2: 20,
+      pigeageDone: true,
+      isBenchmark: false
+    }
+  ];
 
+  // 1. Rebalanced inventory: low Fermaid O (80g), surplus Fermaid K (150g) & DAP (100g)
+  const rebalancedQueue = evaluateRightNowQueue({
+    logs,
+    additions: [],
+    activeTankId: 'tank-a',
+    equipmentProfile: {
+      nutrientInventoryGrams: {
+        isCustomInventoryActive: true,
+        goFermGrams: 90,
+        fermaidOGrams: 80,
+        fermaidKGrams: 150,
+        dapGrams: 100,
+        zincSulfateGrams: 1
+      }
+    }
+  });
 
+  const sna1Rebalanced = rebalancedQueue.allMilestones.find((m) => m.id === 'sna-1');
+  const sna2Rebalanced = rebalancedQueue.allMilestones.find((m) => m.id === 'sna-2-dap');
+  assert.ok(sna1Rebalanced);
+  assert.ok(sna2Rebalanced);
+  assert.ok(sna1Rebalanced.equipmentAdaptationNoteFa?.includes('موجودی'));
+  const sna1RowA = sna1Rebalanced.tankRows.find((r) => r.tankId === 'tank-a');
+  assert.ok(sna1RowA);
+  // Because Fermaid O (80g) is reserved for SNA-3 first, SNA-1 receives compensatory Fermaid K
+  assert.ok(
+    sna1RowA.additionsToRecord.some((a) => a.compoundType === 'fermaid_k' && a.amount > 0),
+    'Expected compensatory fermaid_k addition in SNA-1 when Fermaid O is scarce'
+  );
 
+  // 2. Severe deficit inventory (15g O, 10g K, 5g DAP) -> populates reagentSubstitutionWarningFa on sna-1
+  const deficitQueue = evaluateRightNowQueue({
+    logs,
+    additions: [],
+    activeTankId: 'tank-a',
+    equipmentProfile: {
+      nutrientInventoryGrams: {
+        isCustomInventoryActive: true,
+        goFermGrams: 20,
+        fermaidOGrams: 15,
+        fermaidKGrams: 10,
+        dapGrams: 5,
+        zincSulfateGrams: 0.5
+      }
+    }
+  });
+
+  const sna1Deficit = deficitQueue.allMilestones.find((m) => m.id === 'sna-1');
+  assert.ok(sna1Deficit);
+  assert.ok(
+    sna1Deficit.reagentSubstitutionWarningFa &&
+      sna1Deficit.reagentSubstitutionWarningFa.includes('پیشنهاد:'),
+    'Expected reagentSubstitutionWarningFa to include nitrogen deficit alert and top-up recommendation'
+  );
+});
+
+test('evaluateRightNowQueue dynamically updates yeast-inoculation titleFa, howToExecuteFa, and tankRows for custom selectedYeastByTank with zero hardcoded RC-212', () => {
+  const queue = evaluateRightNowQueue({
+    logs: [],
+    additions: [],
+    activeTankId: 'tank-a',
+    selectedYeastByTank: {
+      'tank-a': 'vinoferm-grand-cru',
+      'tank-b': 'laffort-zymaflore-fx10',
+      'tank-rose': 'lalvin-icv-d47'
+    }
+  });
+
+  const yeastMilestone = queue.allMilestones.find((m) => m.id === 'yeast-inoculation');
+  assert.ok(yeastMilestone);
+
+  assert.ok(
+    yeastMilestone.titleFa.includes('Grand Cru'),
+    `Expected titleFa to include 'Grand Cru', got: ${yeastMilestone.titleFa}`
+  );
+  assert.ok(
+    yeastMilestone.howToExecuteFa.includes('Grand Cru'),
+    `Expected howToExecuteFa to include 'Grand Cru', got: ${yeastMilestone.howToExecuteFa}`
+  );
+  assert.equal(yeastMilestone.titleFa.includes('RC-212'), false);
+  assert.equal(yeastMilestone.howToExecuteFa.includes('RC-212'), false);
+  assert.equal(yeastMilestone.scienceNoteFa.includes('RC-212'), false);
+
+  const rowA = yeastMilestone.tankRows.find((r) => r.tankId === 'tank-a');
+  const rowB = yeastMilestone.tankRows.find((r) => r.tankId === 'tank-b');
+  const rowRose = yeastMilestone.tankRows.find((r) => r.tankId === 'tank-rose');
+  assert.ok(rowA && rowB && rowRose);
+
+  assert.ok(rowA.compoundFa.includes('Grand Cru'));
+  assert.ok(rowA.doseAmountTextFa.includes('Grand Cru'));
+  assert.ok(rowA.additionsToRecord[0].compoundName.includes('Grand Cru'));
+  assert.ok(rowA.additionsToRecord[0].stageTitle.includes('Grand Cru'));
+  assert.equal(JSON.stringify(rowA).includes('RC-212'), false);
+
+  assert.ok(rowB.compoundFa.includes('FX10'));
+  assert.ok(rowB.doseAmountTextFa.includes('FX10'));
+  assert.ok(rowB.additionsToRecord[0].compoundName.includes('FX10'));
+  assert.ok(rowB.additionsToRecord[0].stageTitle.includes('FX10'));
+  assert.equal(JSON.stringify(rowB).includes('RC-212'), false);
+
+  assert.ok(rowRose.compoundFa.includes('ICV D47'));
+  assert.ok(rowRose.doseAmountTextFa.includes('ICV D47'));
+  assert.ok(rowRose.additionsToRecord[0].compoundName.includes('ICV D47'));
+  assert.ok(rowRose.additionsToRecord[0].stageTitle.includes('ICV D47'));
+  assert.equal(JSON.stringify(rowRose).includes('RC-212'), false);
+});

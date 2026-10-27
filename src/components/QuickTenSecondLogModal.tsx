@@ -348,6 +348,8 @@ export const QuickTenSecondLogModal: React.FC<QuickTenSecondLogModalProps> = ({
   const [hasExplicitSo2Input, setHasExplicitSo2Input] = useState<boolean>(false);
   const [hasExplicitRoomTempInput, setHasExplicitRoomTempInput] =
     useState<boolean>(false);
+  const [sugarAddedIntentionally, setSugarAddedIntentionally] =
+    useState<boolean>(false);
 
   // Addition Mode States (Safe empty-default for rawAdditionAmount)
   const [selectedCompoundType, setSelectedCompoundType] =
@@ -422,6 +424,7 @@ export const QuickTenSecondLogModal: React.FC<QuickTenSecondLogModalProps> = ({
     setHasExplicitTaInput(false);
     setHasExplicitSo2Input(false);
     setHasExplicitRoomTempInput(false);
+    setSugarAddedIntentionally(false);
     setSelectedTags([]);
     setOperationNote('');
     setRefractBrixInput('');
@@ -444,6 +447,7 @@ export const QuickTenSecondLogModal: React.FC<QuickTenSecondLogModalProps> = ({
         setOpenRefractSection(true);
       }
       loadLatestTankDefaults(resolvedTank);
+      setSugarAddedIntentionally(false);
       setPostSaveSummary(null);
     }
   }, [
@@ -607,7 +611,8 @@ export const QuickTenSecondLogModal: React.FC<QuickTenSecondLogModalProps> = ({
       tempCap,
       daysElapsed: latestRealOrBenchLog
         ? Math.max(0.5, nextDayNumber - latestRealOrBenchLog.dayNumber)
-        : 1
+        : 1,
+      sugarAddedIntentionally
     });
   }, [
     hasValidSGInput,
@@ -615,7 +620,8 @@ export const QuickTenSecondLogModal: React.FC<QuickTenSecondLogModalProps> = ({
     trueSG,
     latestRealOrBenchLog,
     tempCap,
-    nextDayNumber
+    nextDayNumber,
+    sugarAddedIntentionally
   ]);
 
   // BUG-02, BUG-63 & BUG-73: Dynamic reference volume per tank & exact batchPlan.dosages lookup
@@ -1796,29 +1802,42 @@ export const QuickTenSecondLogModal: React.FC<QuickTenSecondLogModalProps> = ({
                       <p className="leading-relaxed">
                         {typoShieldAlert.messageFa}
                       </p>
-                      {typoShieldAlert.suggestedValue !== undefined &&
-                        typoShieldAlert.suggestedLabelFa && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (
-                                typoShieldAlert.suggestedValue === undefined
-                              ) {
-                                return;
-                              }
-                              if (typoShieldAlert.field === 'sg') {
-                                setRawSGInput(
-                                  typoShieldAlert.suggestedValue.toFixed(3)
-                                );
-                              } else if (typoShieldAlert.field === 'tempCap') {
-                                setTempCap(typoShieldAlert.suggestedValue);
-                              }
-                            }}
-                            className="bg-wine text-white px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
-                          >
-                            {typoShieldAlert.suggestedLabelFa}
-                          </button>
-                        )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {typoShieldAlert.suggestedValue !== undefined &&
+                          typoShieldAlert.suggestedLabelFa && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (
+                                  typoShieldAlert.suggestedValue === undefined
+                                ) {
+                                  return;
+                                }
+                                if (typoShieldAlert.field === 'sg') {
+                                  setRawSGInput(
+                                    typoShieldAlert.suggestedValue.toFixed(3)
+                                  );
+                                } else if (typoShieldAlert.field === 'tempCap') {
+                                  setTempCap(typoShieldAlert.suggestedValue);
+                                }
+                              }}
+                              className="bg-wine text-white px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
+                            >
+                              {typoShieldAlert.suggestedLabelFa}
+                            </button>
+                          )}
+                        {typoShieldAlert.field === 'sg' &&
+                          trueSG > (latestRealOrBenchLog?.sg ?? 0) + 0.003 && (
+                            <button
+                              data-testid="confirm-intentional-sugar-addition-btn"
+                              type="button"
+                              onClick={() => setSugarAddedIntentionally(true)}
+                              className="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink hover:border-wine transition-spring cursor-pointer"
+                            >
+                              قند اضافه کرده‌ام (تایید افزایش چگالی)
+                            </button>
+                          )}
+                      </div>
                     </div>
                   )}
 

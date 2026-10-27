@@ -2,6 +2,8 @@ import type { DynamicProtocolPlan } from './masterProtocolConfig.ts';
 import type { TankId } from '../types/tracking.ts';
 import type { LabAnalysisRecord } from '../types/database.ts';
 import { specificGravityToBrix } from '../utils/trackingCalculations.ts';
+import { getYeastStrainById } from './yeastStrainsData.ts';
+import { enologyDb } from '../db/enologyDatabase.ts';
 
 export interface AdditivePresetItem {
   id: string;
@@ -52,13 +54,20 @@ export interface LabAnalysisPresetItem {
 
 export function getSmartAdditivePresets(
   plan: DynamicProtocolPlan,
-  tankId: TankId
+  tankId: TankId = 'tank-a',
+  yeastStrainId?: string
 ): AdditivePresetItem[] {
   const isRose = tankId === 'tank-rose';
   const d = plan.dosages;
   const v = plan.volumes;
   const t = plan.triggers;
   const p = plan.params;
+  const strain = getYeastStrainById(
+    yeastStrainId ?? enologyDb.getSelectedYeastIdForTank(tankId),
+    isRose
+  );
+  const refVolL = isRose ? v.roseClarifiedFermentL : v.redLiquidFermentPerTankL;
+  const yeastAmountG = Math.round(strain.recommendedDoseGL * refVolL * 100) / 100;
 
   return [
     // 1. Sulfites (sulfite)
@@ -243,15 +252,15 @@ export function getSmartAdditivePresets(
       category: 'yeast_nutrient',
       categoryLabelFa: '۴. مخمر و تغذیه مرحله‌ای نیتروژن (Yeast & SNA)',
       labelFa: isRose
-        ? `مخمر Lalvin RC-212 / D47 شراب رُزه (${d.yeastRoseG}g در ${v.roseClarifiedFermentL}L)`
-        : `مخمر Lalvin Bourgovin RC-212 قرمز (${d.yeastRedPerTankG}g در ${v.redLiquidFermentPerTankL}L)`,
-      compoundName: 'مخمر ساکارومایسس سرویزیه Lalvin Bourgovin RC-212',
+        ? `مخمر ${strain.nameEn} شراب رُزه (${yeastAmountG}g در ${v.roseClarifiedFermentL}L)`
+        : `مخمر ${strain.nameEn} قرمز (${yeastAmountG}g در ${v.redLiquidFermentPerTankL}L)`,
+      compoundName: `مخمر ساکارومایسس سرویزیه ${strain.nameEn}`,
       stageTitle: isRose
         ? 'گام ۳۱: تلقیح مخمر شراب رُزه پس از هم‌دمایی'
-        : 'گام ۱۴: تلقیح نهایی مخمر پس از هم‌دمایی ۳ مرحله‌ای با شیره (روز ۰)',
-      amount: isRose ? (d.yeastRoseG ?? 8.0) : (d.yeastRedPerTankG ?? 33.0),
+        : `گام ۱۴: تلقیح نهایی مخمر ${strain.code} پس از آب‌دهی در ${strain.rehydrationTempC}°C و هم‌دمایی ۳ مرحله‌ای با شیره (روز ۰)`,
+      amount: yeastAmountG,
       unit: 'g',
-      purpose: 'تلقیح جمعیت غالب مخمر (25 g/hL) جهت تخمیر کامل، استخراج پلی‌فنول و حفظ عطر میوه‌ای رشه'
+      purpose: `تلقیح جمعیت غالب مخمر ${strain.code} (${Math.round(strain.recommendedDoseGL * 100)} g/hL) جهت تخمیر کامل، استخراج پلی‌فنول و حفظ عطر میوه‌ای رشه`
     },
     {
       id: 'fermaid-o-sna1',
@@ -424,13 +433,20 @@ export function getSmartAdditivePresets(
 
 export function getSmartDailyStagePresets(
   plan: DynamicProtocolPlan,
-  tankId: TankId
+  tankId: TankId = 'tank-a',
+  yeastStrainId?: string
 ): DailyStagePresetItem[] {
   const isRose = tankId === 'tank-rose';
   const t = plan.triggers;
   const p = plan.params;
   const d = plan.dosages;
   const targetPH = isRose ? p.targetRosePH : p.targetRedPH;
+  const strain = getYeastStrainById(
+    yeastStrainId ?? enologyDb.getSelectedYeastIdForTank(tankId),
+    isRose
+  );
+  const refVolL = isRose ? plan.volumes.roseClarifiedFermentL : plan.volumes.redLiquidFermentPerTankL;
+  const yeastAmountG = Math.round(strain.recommendedDoseGL * refVolL * 100) / 100;
 
   return [
     {
@@ -468,8 +484,8 @@ export function getSmartDailyStagePresets(
       pigeageDone: !isRose,
       pigeageCount: isRose ? 0 : 3,
       note: isRose
-        ? `تلقیح ${d.yeastRoseG}g مخمر با ${d.goFermRoseG}g Go-Ferm در شیره رُزه شفاف‌شده (${plan.volumes.roseClarifiedFermentL}L).`
-        : `تلقیح ${d.yeastRedPerTankG}g مخمر RC-212 بیدارشده در ${d.goFermRedPerTankG}g Go-Ferm؛ شروع تولید CO₂ و بالا آمدن کلاهک.`,
+        ? `تلقیح ${yeastAmountG}g مخمر ${strain.code} با ${d.goFermRoseG}g Go-Ferm در شیره رُزه شفاف‌شده (${plan.volumes.roseClarifiedFermentL}L).`
+        : `تلقیح ${yeastAmountG}g مخمر ${strain.code} بیدارشده (در ${strain.rehydrationTempC}°C) در ${d.goFermRedPerTankG}g Go-Ferm؛ شروع تولید CO₂ و بالا آمدن کلاهک.`,
       isTrigger: false
     },
     {

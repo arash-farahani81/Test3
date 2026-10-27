@@ -9,7 +9,8 @@ export type YeastBrand =
   | 'Maurivin'
   | 'Red Star'
   | 'Renaissance'
-  | 'Chr. Hansen';
+  | 'Chr. Hansen'
+  | 'Vinoferm';
 
 export type YeastCategory =
   | 'structured_red'
@@ -464,6 +465,44 @@ export const YEAST_STRAINS_DATABASE: ReadonlyArray<YeastStrainProfile> = [
     sardashtFitScore: 93,
     sardashtEngineeringNoteFa:
       'بسیار هم‌خوان با تیپ آروماتیک فلفلی-میوه‌ای انگور رشه کوهستانی سردشت و تولید گلیسرول بالا (۹.۸ g/L).'
+  },
+  {
+    id: 'vinoferm-grand-cru',
+    code: 'Grand Cru',
+    nameEn: 'Vinoferm Grand Cru (OenoBioTech / ISVV Bordeaux)',
+    nameFa: 'وینوفِرم گرند کرو (Vinoferm Grand Cru — قرمز ساختارمند و ادویهای)',
+    brand: 'Vinoferm',
+    species: 'S. cerevisiae',
+    category: 'structured_red',
+    recommendedStyles: ['red'],
+    originFa:
+      'انتخابشده توسط OenoBioTech فرانسه (برند Vinoferm، توزیعشده توسط Brouwland بلژیک) و کنترلشده در آزمایشگاه Microflora مؤسسه ISVV دانشگاه بوردو با اثرانگشت DNA (توالی inter-delta) برای تضمین خلوص سویه',
+    tempMinC: 16,
+    tempOptMinC: 18,
+    tempOptMaxC: 28,
+    tempWarningC: 28.5,
+    tempDangerC: 30.0,
+    tempMaxC: 31.0,
+    alcoholTolerancePct: 16.0,
+    recommendedDoseGL: 0.2,
+    rehydrationTempC: 38,
+    yanDemandLevel: 'medium',
+    yanMultiplier: 1.0,
+    requiresHighSterolsGoFerm: false,
+    h2sRiskLevel: 'low',
+    endogenousSo2MgL: 0,
+    so2BindingLevel: 'very_low',
+    malicConsumptionPct: -28,
+    lacticAcidProductionGL: 0,
+    expectedPhShift: 0.08,
+    glycerolYieldGL: 6.0,
+    polysaccharideRelease: 'high',
+    killerFactor: 'neutral',
+    aromaProfileFa:
+      'نتهای ادویهای، گیاهان معطر و میوههای خشک؛ غنی از عطر ادویه و تانن، مناسب شراب قرمز ساختارمند برای بلوطدهی',
+    sardashtFitScore: 95,
+    sardashtEngineeringNoteFa:
+      'فاز لگ کوتاه با تخمیر فعال، تولید کف کم، اسیدیته فرار کمتر از 0.12 g/L، بدون تولید SO2 درونزاد و پایداری رنگ عالی؛ توجه: این مخمر ۲۸٪ اسید مالیک را تجزیه میکند که باعث افزایش ملایم pH میشود (برآورد ~0.08) و تخمیر مالولاکتیک را تسهیل میکند؛ آبرسانی: ۱ واحد مخمر در ۷ واحد آب + ۳ واحد آبانگور در ۳۵ تا ۴۰ درجه، حداقل ۱۵ دقیقه؛ اختلاف دمای استارتر و شیره در مخزن حداکثر ۱۰ درجه باشد.'
   },
 
   // ==========================================================================
@@ -1566,17 +1605,19 @@ export function recommendYeastStrainsForGoal(
           'lalvin-icv-d254',
           'lalvin-bm-4x4',
           'enoferm-syrah',
-          'maurivin-awri-796'
+          'maurivin-awri-796',
+          'vinoferm-grand-cru'
         ].includes(s.id)
       ).sort((a, b) => b.sardashtFitScore - a.sardashtFitScore);
 
     case 'velvety_reserve_red':
       return YEAST_STRAINS_DATABASE.filter(
         (s) =>
-          s.recommendedStyles.includes('red') &&
-          (s.polysaccharideRelease === 'extreme_hsp12' ||
-            s.polysaccharideRelease === 'high') &&
-          s.glycerolYieldGL >= 9.0
+          s.id === 'vinoferm-grand-cru' ||
+          (s.recommendedStyles.includes('red') &&
+            (s.polysaccharideRelease === 'extreme_hsp12' ||
+              s.polysaccharideRelease === 'high') &&
+            s.glycerolYieldGL >= 9.0)
       ).sort((a, b) => b.sardashtFitScore - a.sardashtFitScore);
 
     case 'natural_acidity_boost':
@@ -1599,4 +1640,22 @@ export function recommendYeastStrainsForGoal(
         (s) => s.category === 'high_abv_restart'
       ).sort((a, b) => b.alcoholTolerancePct - a.alcoholTolerancePct);
   }
+}
+
+export function formatProtocolTextWithYeast(
+  text: string,
+  activeStrain: YeastStrainProfile,
+  roseStrain?: YeastStrainProfile
+): string {
+  if (!text) return text;
+  let formatted = text
+    .replace(/Lalvin\s+Bourgovin\s+RC-212|Lalvin\s+RC-212/gi, activeStrain.nameEn)
+    .replace(/RC-212|RC212/g, activeStrain.code);
+  if (roseStrain) {
+    formatted = formatted.replace(
+      /Rhône\s*4600\s*\/\s*ICV\s*D47|Rhône\s*4600/gi,
+      roseStrain.code
+    );
+  }
+  return formatted;
 }

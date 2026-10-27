@@ -302,6 +302,9 @@ export interface EnologyUiContextValue {
   isYeastSelectorOpen: boolean;
   openYeastSelectorModal: () => void;
   closeYeastSelectorModal: () => void;
+  nutrientInventory: NutrientInventoryGrams;
+  updateNutrientInventory: (nextInventory: NutrientInventoryGrams) => void;
+  batchNutrientOptimization: BatchNutrientOptimizationResult;
   // ...plus batch, tank selection, 5-tab nav, deep-links, modals, glossary, and dataVersion fields
 }
 export const EnologyUiProvider: React.FC<{ children: React.ReactNode }>;
@@ -370,6 +373,41 @@ export function computeYeastAdjustedSnaPlan(params: { strainId?: string; isRose?
 export function computeYeastAcidityAndGlycerolImpact(params: { strainId?: string; isRose?: boolean; initialPH: number; initialTA: number; defaultMaxGlycerinGL: number }): YeastAcidityAndGlycerolImpact;
 export function recommendYeastStrainsForGoal(goal: 'classic_sardasht_red' | 'velvety_reserve_red' | 'natural_acidity_boost' | 'zero_h2s_safety' | 'aromatic_saignee_rose' | 'stuck_fermentation_rescue'): YeastStrainProfile[];
 ```
+
+## 10. `src/utils/nutrientInventoryOptimizer.ts`
+```ts
+export interface TankOptimizedSnaSchedule {
+  tankId: TankId; tankLabelFa: string; liquidVolumeL: number; yeastStrain: YeastStrainProfile;
+  yeastNeededGrams: number; goFermIdealGrams: number; goFermAllocatedGrams: number;
+  targetYANMgL: number; neededYANMgL: number; suppliedChemicalYANMgL: number;
+  suppliedBioEquivalentYANMgL: number; unmetBioYanDeficitMgL: number;
+  sna1: { fermaidOGrams: number; fermaidKGrams: number; noteFa: string };
+  sna2: { fermaidKGrams: number; dapGrams: number; zincGrams: number; fermaidOGrams: number; noteFa: string };
+  sna3: { fermaidOGrams: number; noteFa: string };
+}
+export interface NutrientTopUpRecommendation {
+  id: 'buy_fermaid_o' | 'buy_fermaid_k_dap' | 'boiled_yeast_hulls_fallback' | 'switch_low_yan_yeast';
+  titleFa: string; amountTextFa: string; explanationFa: string; suggestedStrainIds?: string[];
+}
+export interface BatchNutrientOptimizationResult {
+  isOptimizedFromCustomInventory: boolean;
+  strategyMode: 'ideal_standard' | 'rebalanced_surplus_k_dap' | 'rebalanced_surplus_fermaid_o' | 'deficit_warning';
+  strategySummaryFa: string; hasNitrogenDeficit: boolean; hasGoFermDeficit: boolean;
+  totalNeededBioYanAverageMgL: number; totalSuppliedBioYanAverageMgL: number; maxUnmetBioYanDeficitMgL: number;
+  inventoryUsedGrams: { goFerm: number; fermaidO: number; fermaidK: number; dap: number; zinc: number };
+  inventoryRemainingGrams: { goFerm: number; fermaidO: number; fermaidK: number; dap: number; zinc: number };
+  tanks: Record<TankId, TankOptimizedSnaSchedule>;
+  deficitAlertFa: string | null;
+  recommendations: NutrientTopUpRecommendation[];
+}
+export function getDefaultIdealNutrientInventoryGrams(grapeWeightKg?: number, produceRose?: boolean): NutrientInventoryGrams;
+export function optimizeNutrientScheduleFromInventory(params: {
+  inventory?: NutrientInventoryGrams | null; redLiquidPerTankL?: number; redTankCount?: 1 | 2;
+  roseLiquidL?: number; produceRose?: boolean; initialBrix?: number; initialSG?: number;
+  naturalYANMgL?: number; selectedYeastByTank?: Partial<Record<TankId, string>>;
+}): BatchNutrientOptimizationResult;
+```
+
 
 
 

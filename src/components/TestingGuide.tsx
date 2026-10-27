@@ -65,6 +65,11 @@ import {
   buildCalculatorDirectAdditions,
   type CalculatorDirectDoseKind
 } from '../utils/enologyUtils.ts';
+import {
+  optimizeNutrientScheduleFromInventory,
+  getDefaultIdealNutrientInventoryGrams
+} from '../utils/nutrientInventoryOptimizer.ts';
+import { getYeastStrainById } from '../data/yeastStrainsData.ts';
 import { getCurrentPersianDateTimeStr } from '../utils/persianDate.ts';
 
 export type LabHubSubTab = 'calculators-sops' | 'troubleshooting-crises' | 'saved-history';
@@ -239,7 +244,12 @@ export const TestingGuide: React.FC<TestingGuideProps> = ({
     equipmentCapabilities,
     openEquipmentModal,
     activeTankYeastStrain,
-    openYeastSelectorModal
+    openYeastSelectorModal,
+    nutrientInventory,
+    updateNutrientInventory,
+    primaryTankId,
+    selectedYeastByTank,
+    setSelectedYeastForTank
   } = useEnologyUi();
   const [onlyMyEquipmentTools, setOnlyMyEquipmentTools] = useState<boolean>(false);
   const [activeSubTab, setActiveSubTab] = useState<LabHubSubTab>(initialActiveSubTab);
@@ -288,6 +298,7 @@ export const TestingGuide: React.FC<TestingGuideProps> = ({
       primaryAmount: number;
       secondaryAmount?: number;
       tertiaryAmount?: number;
+      quaternaryAmount?: number;
       calculatedSO2MgL?: number;
       phShiftMode?: 'acidification' | 'deacidification' | 'none';
       labelFa: string;
@@ -305,6 +316,7 @@ export const TestingGuide: React.FC<TestingGuideProps> = ({
         primaryAmount: config.primaryAmount,
         secondaryAmount: config.secondaryAmount,
         tertiaryAmount: config.tertiaryAmount,
+        quaternaryAmount: config.quaternaryAmount,
         calculatedSO2MgL: config.calculatedSO2MgL,
         phShiftMode: config.phShiftMode
       });
@@ -748,6 +760,42 @@ export const TestingGuide: React.FC<TestingGuideProps> = ({
     ...flexParams,
     grapeWeightKg: grapeWeight
   });
+
+  const localSnaOptimization = optimizeNutrientScheduleFromInventory({
+    inventory: nutrientInventory,
+    redLiquidPerTankL:
+      primaryTankId !== 'tank-rose' ? snaResults.effectiveVolumeL : 112.5,
+    redTankCount: 2,
+    roseLiquidL:
+      primaryTankId === 'tank-rose' ? snaResults.effectiveVolumeL : 43.2,
+    initialBrix: snaBrix,
+    naturalYANMgL: snaNaturalYAN,
+    selectedYeastByTank
+  });
+  const activeOptTank = localSnaOptimization.tanks[primaryTankId];
+  const activeSuppliedTotalYanMgL =
+    Math.round(
+      (snaNaturalYAN + activeOptTank.suppliedBioEquivalentYANMgL) * 10
+    ) / 10;
+  const activeOptFulfillmentPct =
+    activeOptTank.targetYANMgL > 0
+      ? Math.min(
+          100,
+          Math.round(
+            (activeSuppliedTotalYanMgL / activeOptTank.targetYANMgL) * 100
+          )
+        )
+      : 100;
+  const lowYanSuggestedStrains = (
+    localSnaOptimization.recommendations.find(
+      (r) => r.suggestedStrainIds && r.suggestedStrainIds.length > 0
+    )?.suggestedStrainIds ?? [
+      'lalvin-icv-d254',
+      'uvaferm-43',
+      'vinoferm-grand-cru',
+      'fermentis-hd-s62'
+    ]
+  ).map((id) => getYeastStrainById(id));
 
   const scaledBatch = {
     mashVolume: scaledPlan.volumes.totalCrushedMashL,
@@ -2881,6 +2929,250 @@ export const TestingGuide: React.FC<TestingGuideProps> = ({
                       تغییر سویه مخمر (۳۶ سویه)
                     </button>
                   </div>
+                  <div
+                    data-testid="sop05-nutrient-inventory-optimizer-card"
+                    className="rounded-xl border border-line bg-paper p-3.5 mb-3 space-y-3 text-xs text-ink"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <span className="font-bold text-ink">
+                          بهینه‌ساز هوشمند تغذیه مخمر بر اساس موجودی گرم مواد (Smart SNA Optimizer)
+                        </span>
+                        <p className="text-ink-soft mt-0.5">
+                          موجودی واقعی مواد مغذی خود (Fermaid O, Fermaid K, DAP, Go-Ferm, ZnSO4) را به گرم وارد کنید تا موتور استوکیومتری به صورت خودکار کمبود هر ماده را با ماده جایگزین جبران کند یا هشدار کسری نیتروژن بدهد.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex items-center gap-1.5 font-bold cursor-pointer">
+                          <input
+                            type="checkbox"
+                            data-testid="sop05-custom-inventory-toggle"
+                            checked={nutrientInventory.isCustomInventoryActive}
+                            onChange={(e) =>
+                              updateNutrientInventory({
+                                ...nutrientInventory,
+                                isCustomInventoryActive: e.target.checked
+                              })
+                            }
+                          />
+                          <span>محاسبه با محدودیت موجودی واقعی</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateNutrientInventory(
+                              getDefaultIdealNutrientInventoryGrams()
+                            )
+                          }
+                          className="rounded-lg border border-line bg-surface px-2.5 py-1 text-xs font-bold text-ink cursor-pointer"
+                        >
+                          بازنشانی به موجودی ایده‌آل ({grapeWeight} kg)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                      <div>
+                        <label className="block text-ink-soft font-bold mb-1">
+                          موجودی Fermaid O (g)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          data-testid="sop05-inv-fermaid-o"
+                          value={nutrientInventory.fermaidOGrams}
+                          onChange={(e) =>
+                            updateNutrientInventory({
+                              ...nutrientInventory,
+                              isCustomInventoryActive: true,
+                              fermaidOGrams: Math.max(0, Number(e.target.value) || 0)
+                            })
+                          }
+                          className="w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-bold font-mono text-ink"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-ink-soft font-bold mb-1">
+                          موجودی Fermaid K (g)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          data-testid="sop05-inv-fermaid-k"
+                          value={nutrientInventory.fermaidKGrams}
+                          onChange={(e) =>
+                            updateNutrientInventory({
+                              ...nutrientInventory,
+                              isCustomInventoryActive: true,
+                              fermaidKGrams: Math.max(0, Number(e.target.value) || 0)
+                            })
+                          }
+                          className="w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-bold font-mono text-ink"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-ink-soft font-bold mb-1">
+                          موجودی DAP (g)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          data-testid="sop05-inv-dap"
+                          value={nutrientInventory.dapGrams}
+                          onChange={(e) =>
+                            updateNutrientInventory({
+                              ...nutrientInventory,
+                              isCustomInventoryActive: true,
+                              dapGrams: Math.max(0, Number(e.target.value) || 0)
+                            })
+                          }
+                          className="w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-bold font-mono text-ink"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-ink-soft font-bold mb-1">
+                          موجودی Go-Ferm (g)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          data-testid="sop05-inv-go-ferm"
+                          value={nutrientInventory.goFermGrams}
+                          onChange={(e) =>
+                            updateNutrientInventory({
+                              ...nutrientInventory,
+                              isCustomInventoryActive: true,
+                              goFermGrams: Math.max(0, Number(e.target.value) || 0)
+                            })
+                          }
+                          className="w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-bold font-mono text-ink"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-ink-soft font-bold mb-1">
+                          موجودی ZnSO4 (g)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          data-testid="sop05-inv-zinc"
+                          value={nutrientInventory.zincSulfateGrams}
+                          onChange={(e) =>
+                            updateNutrientInventory({
+                              ...nutrientInventory,
+                              isCustomInventoryActive: true,
+                              zincSulfateGrams: Math.max(0, Number(e.target.value) || 0)
+                            })
+                          }
+                          className="w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-bold font-mono text-ink"
+                        />
+                      </div>
+                    </div>
+
+                    <div
+                      data-testid="sop05-optimized-sna-schedule-box"
+                      className="rounded-lg border border-line bg-surface p-2.5 space-y-2"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-bold text-ink">
+                          {`جدول دوز پیشنهادی مخزن فعال (${selectedTankLabelFa}) بر اساس موجودی:`}
+                        </span>
+                        <span className="ltr-metric font-bold text-wine">
+                          {`YAN تامین‌شده: ${activeSuppliedTotalYanMgL} / ${activeOptTank.targetYANMgL} mg N/L (${activeOptFulfillmentPct}%)`}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="rounded border border-line bg-paper p-2">
+                          <div className="font-bold text-ink">نوبت اول (SNA-1)</div>
+                          <div className="ltr-metric font-mono font-bold text-wine mt-0.5">
+                            {`${activeOptTank.sna1.fermaidOGrams} g Fermaid O`}
+                            {activeOptTank.sna1.fermaidKGrams > 0
+                              ? ` + ${activeOptTank.sna1.fermaidKGrams} g Fermaid K (جبرانی)`
+                              : ''}
+                          </div>
+                          <div className="text-ink-soft mt-0.5">{activeOptTank.sna1.noteFa}</div>
+                        </div>
+                        <div className="rounded border border-line bg-paper p-2">
+                          <div className="font-bold text-ink">نوبت دوم (SNA-2 در ۱/۳ قند)</div>
+                          <div className="ltr-metric font-mono font-bold text-wine mt-0.5">
+                            {`${activeOptTank.sna2.fermaidKGrams} g K + ${activeOptTank.sna2.dapGrams} g DAP + ${activeOptTank.sna2.zincGrams} g Zn`}
+                            {activeOptTank.sna2.fermaidOGrams > 0
+                              ? ` + ${activeOptTank.sna2.fermaidOGrams} g Fermaid O (جبرانی)`
+                              : ''}
+                          </div>
+                          <div className="text-ink-soft mt-0.5">{activeOptTank.sna2.noteFa}</div>
+                        </div>
+                        <div className="rounded border border-line bg-paper p-2">
+                          <div className="font-bold text-ink">نوبت سوم (SNA-3 در ۲/۳ قند)</div>
+                          <div className="ltr-metric font-mono font-bold text-wine mt-0.5">
+                            {`${activeOptTank.sna3.fermaidOGrams} g Fermaid O (فقط آلی)`}
+                          </div>
+                          <div className="text-ink-soft mt-0.5">{activeOptTank.sna3.noteFa}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {(localSnaOptimization.hasNitrogenDeficit ||
+                      localSnaOptimization.hasGoFermDeficit) && (
+                      <div
+                        data-testid="sop05-nitrogen-deficit-banner"
+                        className="rounded-lg border border-line bg-paper p-3 space-y-2"
+                      >
+                        <div className="font-bold text-danger">
+                          {`هشدار کسری نیتروژن (کمبود ${activeOptTank.unmetBioYanDeficitMgL} mg N/L در این مخزن): ${localSnaOptimization.deficitAlertFa ?? ''}`}
+                        </div>
+                        {localSnaOptimization.recommendations.length > 0 && (
+                          <div className="text-ink space-y-1">
+                            <div className="font-bold">
+                              گزینه ۱ — خرید و تکمیل موجودی پیشنهادی برای کل بچ:
+                            </div>
+                            <ul className="space-y-0.5 text-ink-soft">
+                              {localSnaOptimization.recommendations.map((item) => (
+                                <li key={item.id}>
+                                  {`• ${item.titleFa}: ${item.amountTextFa} (${item.explanationFa})`}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        <div className="space-y-1.5">
+                          <div className="font-bold text-ink">
+                            گزینه ۲ — تغییر ۱-کلیکی به سویه مخمر کم‌مصرف (ضریب ×0.75) برای رفع ریسک H2S بدون خرید ماده جدید:
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {lowYanSuggestedStrains.map((s) => {
+                              const isCurrent = activeTankYeastStrain.id === s.id;
+                              return (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  data-testid={`sop05-switch-low-yan-yeast-${s.id}`}
+                                  onClick={() => {
+                                    for (const tId of targetTankIds) {
+                                      setSelectedYeastForTank(tId, s.id);
+                                    }
+                                    setSnaStrainDemand('low');
+                                  }}
+                                  className={`rounded-lg border px-2.5 py-1 text-xs font-bold cursor-pointer ${
+                                    isCurrent
+                                      ? 'border-wine bg-wine text-white'
+                                      : 'border-line bg-surface text-ink'
+                                  }`}
+                                >
+                                  {`${s.nameFa} (${s.brand}) — ضریب ×${s.yanMultiplier}${isCurrent ? ' (فعال)' : ''}`}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
                     <div>
                       <label className="block text-stone-700 font-bold mb-1">
@@ -3128,69 +3420,91 @@ export const TestingGuide: React.FC<TestingGuideProps> = ({
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                       <button
                         type="button"
-                        onClick={() =>
+                        onClick={() => {
+                          const useOpt = nutrientInventory.isCustomInventoryActive;
+                          const o1 = useOpt ? activeOptTank.sna1.fermaidOGrams : snaResults.fermaidO_1;
+                          const k1 = useOpt ? activeOptTank.sna1.fermaidKGrams : 0;
                           handleDirectLogToTankLedger('sna_1', {
                             referenceVolumeL: snaResults.effectiveVolumeL,
-                            primaryAmount: snaResults.fermaidO_1,
+                            primaryAmount: o1,
+                            secondaryAmount: k1 > 0 ? k1 : undefined,
                             labelFa:
                               'SNA-1 (' +
-                              snaResults.fermaidO_1 +
-                              ' گرم Fermaid O)'
-                          })
-                        }
+                              o1 +
+                              'g O' +
+                              (k1 > 0 ? ' + ' + k1 + 'g K' : '') +
+                              ')'
+                          });
+                        }}
                         className="bg-wine text-white hover:opacity-95 px-3 py-2 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-opacity cursor-pointer"
                       >
                         <PlusCircle className="w-3.5 h-3.5 shrink-0" />
                         <span>
-                          + ثبت SNA-1 ({snaResults.fermaidO_1} g Fermaid O) در
-                          دفتر {selectedTankLabelFa}
+                          + ثبت SNA-1 (
+                          {nutrientInventory.isCustomInventoryActive
+                            ? `${activeOptTank.sna1.fermaidOGrams}g O${activeOptTank.sna1.fermaidKGrams > 0 ? ` + ${activeOptTank.sna1.fermaidKGrams}g K` : ''}`
+                            : `${snaResults.fermaidO_1} g Fermaid O`}
+                          ) در دفتر {selectedTankLabelFa}
                         </span>
                       </button>
 
                       <button
                         type="button"
-                        onClick={() =>
+                        onClick={() => {
+                          const useOpt = nutrientInventory.isCustomInventoryActive;
+                          const k2 = useOpt ? activeOptTank.sna2.fermaidKGrams : snaResults.fermaidK_2;
+                          const dap2 = useOpt ? activeOptTank.sna2.dapGrams : snaResults.dap_2;
+                          const zn2 = useOpt ? activeOptTank.sna2.zincGrams : snaResults.zinc_2;
+                          const o2 = useOpt ? activeOptTank.sna2.fermaidOGrams : 0;
                           handleDirectLogToTankLedger('sna_2', {
                             referenceVolumeL: snaResults.effectiveVolumeL,
-                            primaryAmount: snaResults.fermaidK_2,
-                            secondaryAmount: snaResults.dap_2,
-                            tertiaryAmount: snaResults.zinc_2,
+                            primaryAmount: k2,
+                            secondaryAmount: dap2,
+                            tertiaryAmount: zn2,
+                            quaternaryAmount: o2 > 0 ? o2 : undefined,
                             labelFa:
                               'بسته کامل SNA-2 (' +
-                              snaResults.fermaidK_2 +
+                              k2 +
                               'g K + ' +
-                              snaResults.dap_2 +
-                              'g DAP)'
-                          })
-                        }
+                              dap2 +
+                              'g DAP' +
+                              (o2 > 0 ? ' + ' + o2 + 'g O' : '') +
+                              ')'
+                          });
+                        }}
                         className="bg-wine text-white hover:opacity-95 px-3 py-2 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-opacity cursor-pointer"
                       >
                         <PlusCircle className="w-3.5 h-3.5 shrink-0" />
                         <span>
-                          + ثبت SNA-2 ({snaResults.fermaidK_2}g K +{' '}
-                          {snaResults.dap_2}g DAP + {snaResults.zinc_2}g Zn) در
-                          دفتر {selectedTankLabelFa}
+                          + ثبت SNA-2 (
+                          {nutrientInventory.isCustomInventoryActive
+                            ? `${activeOptTank.sna2.fermaidKGrams}g K + ${activeOptTank.sna2.dapGrams}g DAP + ${activeOptTank.sna2.zincGrams}g Zn${activeOptTank.sna2.fermaidOGrams > 0 ? ` + ${activeOptTank.sna2.fermaidOGrams}g O` : ''}`
+                            : `${snaResults.fermaidK_2}g K + ${snaResults.dap_2}g DAP + ${snaResults.zinc_2}g Zn`}
+                          ) در دفتر {selectedTankLabelFa}
                         </span>
                       </button>
 
                       <button
                         type="button"
-                        onClick={() =>
+                        onClick={() => {
+                          const o3 = nutrientInventory.isCustomInventoryActive
+                            ? activeOptTank.sna3.fermaidOGrams
+                            : snaResults.fermaidO_3;
                           handleDirectLogToTankLedger('sna_3', {
                             referenceVolumeL: snaResults.effectiveVolumeL,
-                            primaryAmount: snaResults.fermaidO_3,
-                            labelFa:
-                              'SNA-3 (' +
-                              snaResults.fermaidO_3 +
-                              ' گرم Fermaid O)'
-                          })
-                        }
+                            primaryAmount: o3,
+                            labelFa: 'SNA-3 (' + o3 + ' گرم Fermaid O)'
+                          });
+                        }}
                         className="bg-wine text-white hover:opacity-95 px-3 py-2 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-opacity cursor-pointer"
                       >
                         <PlusCircle className="w-3.5 h-3.5 shrink-0" />
                         <span>
-                          + ثبت SNA-3 ({snaResults.fermaidO_3} g Fermaid O) در
-                          دفتر {selectedTankLabelFa}
+                          + ثبت SNA-3 (
+                          {nutrientInventory.isCustomInventoryActive
+                            ? activeOptTank.sna3.fermaidOGrams
+                            : snaResults.fermaidO_3}{' '}
+                          g Fermaid O) در دفتر {selectedTankLabelFa}
                         </span>
                       </button>
                     </div>

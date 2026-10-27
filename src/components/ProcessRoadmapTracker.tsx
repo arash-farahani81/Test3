@@ -54,6 +54,7 @@ import type { ChemicalAddition, LabAnalysisRecord } from '../types/database.ts';
 
 import { ZERO_TO_HUNDRED_STEPS, getStepLabTools, type ProcessStep, type StepLabToolLink } from "../data/roadmapStepsData.ts";
 import { getSmartAdditivePresets } from '../data/smartLoggingPresets.ts';
+import { formatProtocolTextWithYeast, getYeastStrainById } from '../data/yeastStrainsData.ts';
 export { ZERO_TO_HUNDRED_STEPS, getStepLabTools, type ProcessStep, type StepLabToolLink };
 
 export interface ProcessRoadmapTrackerProps {
@@ -358,8 +359,12 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
     equipmentCapabilities,
     openEquipmentModal,
     activeTankYeastStrain,
-    openYeastSelectorModal
+    getYeastStrainForTank,
+    openYeastSelectorModal,
+    batchNutrientOptimization
   } = useEnologyUi();
+  void getYeastStrainById;
+  const roseTankYeast = getYeastStrainForTank('tank-rose');
   const { params: flexParams, plan: flexPlan, isModifiedFromIdeal } = useFlexibleProtocol();
   void flexParams;
   const batchPlan = useMemo(
@@ -564,7 +569,15 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
     setHideDisabledRoseSteps(!produceRoseSaignee);
   }, [produceRoseSaignee]);
 
-  const ROSE_SPECIFIC_STEP_NUMBERS = new Set([6, 7, 10]);
+  const ROSE_SPECIFIC_STEP_NUMBERS = new Set([6, 7, 10, 29, 30, 31, 32, 33]);
+  const fmtYeast = (raw: string, stepNum?: number) =>
+    formatProtocolTextWithYeast(
+      raw,
+      stepNum && ROSE_SPECIFIC_STEP_NUMBERS.has(stepNum)
+        ? roseTankYeast
+        : activeTankYeastStrain,
+      roseTankYeast
+    );
 
   const anchorMins = parseTimeToMinutes(anchorTime);
   const saigneeMins = anchorMins + saigneeOffsetHours * 60;
@@ -731,9 +744,9 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
       setChemAmount(`${roundSum(d.whiteTanninRedPhase1PerTankG, d.redTanninPhase1PerTankG)}g`);
       setChemPurpose(`${d.whiteTanninRedPhase1PerTankG}g سفید + ${d.redTanninPhase1PerTankG}g قرمز`);
     } else if (currentStepId === 13) {
-      setChemName('مخمر Lalvin RC-212 + Go-Ferm');
+      setChemName(`مخمر ${activeTankYeastStrain.nameEn} + Go-Ferm`);
       setChemAmount(`${roundSum(d.yeastRedPerTankG, d.goFermRedPerTankG)}g`);
-      setChemPurpose(`${d.yeastRedPerTankG}g مخمر + ${d.goFermRedPerTankG}g Go-Ferm`);
+      setChemPurpose(`${d.yeastRedPerTankG}g مخمر (${activeTankYeastStrain.code}) + ${d.goFermRedPerTankG}g Go-Ferm`);
     } else if (currentStepId === 16) {
       setChemName('مکمل Fermaid O (تغذیه SNA-1)');
       setChemAmount(`${d.fermaidO1RedPerTankG}g`);
@@ -776,10 +789,10 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
       setChemAmount(`${d.ascorbicRedPerTankG}g`);
       setChemPurpose('حذف اکسیژن محلول ۳۰ دقیقه پیش از بطری‌گذاری');
     } else if (currentStep.defaultChemicalName) {
-      setChemName(currentStep.defaultChemicalName);
+      setChemName(fmtYeast(currentStep.defaultChemicalName, currentStepId));
     }
     setSelectedRoadmapChemPresetId('');
-  }, [currentStepId, effectiveRoadmapPlan, currentStep.defaultChemicalName]);
+  }, [currentStepId, effectiveRoadmapPlan, currentStep.defaultChemicalName, activeTankYeastStrain]);
 
   const totalStepsCount = ZERO_TO_HUNDRED_STEPS.length;
   const completedCount = completedSteps.length;
@@ -1579,8 +1592,8 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
                           </span>
                         )}
                       </div>
-                      <h4 className="text-xs font-bold text-ink leading-snug pt-0.5">{t.title}</h4>
-                      <p className="text-xs text-ink-soft leading-relaxed">{t.stationNote}</p>
+                      <h4 className="text-xs font-bold text-ink leading-snug pt-0.5">{fmtYeast(t.title, t.stepIds[0])}</h4>
+                      <p className="text-xs text-ink-soft leading-relaxed">{fmtYeast(t.stationNote, t.stepIds[0])}</p>
                     </div>
 
                     <div className="space-y-2 pt-1">
@@ -1768,10 +1781,10 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
             <h3 className="text-lg sm:text-xl font-bold text-ink flex items-center gap-2 pt-1 flex-wrap">
               <span>گام جاری شما:</span>
               <span className="text-wine font-mono">گام شماره {currentStep.id}</span>
-              <span className="text-ink-soft font-bold text-base sm:text-lg">({currentStep.title})</span>
+              <span className="text-ink-soft font-bold text-base sm:text-lg">({fmtYeast(currentStep.title, currentStep.id)})</span>
             </h3>
             <p className="text-xs text-ink-soft">
-              موقعیت زمانی / تریگر هیدرومتر: <strong className="text-ink">{currentStep.timeOrTrigger}</strong>
+              موقعیت زمانی / تریگر هیدرومتر: <strong className="text-ink">{fmtYeast(currentStep.timeOrTrigger, currentStep.id)}</strong>
             </p>
           </div>
 
@@ -1836,7 +1849,7 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
           <div className="flex items-center gap-2">
             <PlayCircle className="w-5 h-5 text-wine shrink-0" />
             <h3 className="text-base font-bold text-ink">
-              دستورالعمل اجرایی کامل گام فعلی شما (گام {currentStep.id}): {currentStep.title}
+              دستورالعمل اجرایی کامل گام فعلی شما (گام {currentStep.id}): {fmtYeast(currentStep.title, currentStep.id)}
             </h3>
           </div>
           <span className="text-xs font-bold px-3 py-1 rounded-full bg-paper text-ink border border-line shrink-0">
@@ -1851,7 +1864,7 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
               <span>اقدام عملیاتی دقیق این مرحله:</span>
             </strong>
             <p className="text-ink font-medium leading-relaxed">
-              {currentStep.keyAction}
+              {fmtYeast(currentStep.keyAction, currentStep.id)}
             </p>
           </div>
 
@@ -1863,7 +1876,7 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
                   <strong className="font-bold block text-emerald-950 mb-0.5">
                     مقادیر محاسبه‌شده پویا بر اساس تنظیمات فعلی کارگاه شما ({flexParams.grapeWeightKg} کیلوگرم انگور — پروفایل {flexParams.presetId === 'conservative_ideal' ? 'توصیه بهینه' : flexParams.presetId === 'classic_v32' ? 'سند کلاسیک v3.2' : 'سفارشی'}):
                   </strong>
-                  <span className="font-bold text-emerald-900 leading-relaxed">{activeStepDynamicSummary}</span>
+                  <span className="font-bold text-emerald-900 leading-relaxed">{fmtYeast(activeStepDynamicSummary, currentStep.id)}</span>
                 </div>
               </div>
             </div>
@@ -1898,8 +1911,8 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
                       className="bg-surface p-3 rounded-lg border border-line flex items-center justify-between gap-3"
                     >
                       <div>
-                        <div className="text-xs font-bold text-ink">{t.title}</div>
-                        <div className="text-xs text-ink-soft mt-0.5">{t.stationNote}</div>
+                        <div className="text-xs font-bold text-ink">{fmtYeast(t.title, t.stepIds[0])}</div>
+                        <div className="text-xs text-ink-soft mt-0.5">{fmtYeast(t.stationNote, t.stepIds[0])}</div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <span className={`font-mono tabular-nums text-base font-bold ${isOvertime ? 'text-danger' : 'text-ink'}`}>
@@ -1939,7 +1952,7 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
               <ShieldAlert className="w-4 h-4 text-danger shrink-0 mt-0.5" />
               <div>
                 <strong className="font-bold block text-danger mb-0.5">هشدار و نکته خط قرمز کارگاهی:</strong>
-                <span>{currentStep.criticalWarning}</span>
+                <span>{fmtYeast(currentStep.criticalWarning, currentStep.id)}</span>
               </div>
             </div>
           )}
@@ -2248,10 +2261,10 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
                 <Sparkles className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
                 <div>
                   <span className="font-bold block text-emerald-900">
-                    مرحله بعدی شما (گام {nextStep.id}): {nextStep.title}
+                    مرحله بعدی شما (گام {nextStep.id}): {fmtYeast(nextStep.title, nextStep.id)}
                   </span>
                   <span className="text-emerald-800 text-xs mt-0.5 block">
-                    موقعیت: {nextStep.timeOrTrigger} • {nextStep.nextStepPreview}
+                    موقعیت: {fmtYeast(nextStep.timeOrTrigger, nextStep.id)} • {fmtYeast(nextStep.nextStepPreview, nextStep.id)}
                   </span>
                 </div>
               </div>
@@ -2368,7 +2381,7 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
                         onClick={() => handleSelectStep(step.id)}
                         className="text-xs sm:text-sm font-bold text-ink hover:text-wine cursor-pointer"
                       >
-                        {step.title}
+                        {fmtYeast(step.title, stepNum)}
                       </h4>
                       {isActive && (
                         <span className="text-xs bg-wine text-white font-bold px-2 py-0.5 rounded-full">
@@ -2399,14 +2412,14 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
                       })()}
                     </div>
                     <p className="text-xs text-ink-soft leading-relaxed">
-                      موقعیت/تریگر: <strong className="text-ink">{step.timeOrTrigger}</strong> • دما: <strong className="text-ink">{step.targetTemp}</strong>
+                      موقعیت/تریگر: <strong className="text-ink">{fmtYeast(step.timeOrTrigger, stepNum)}</strong> • دما: <strong className="text-ink">{step.targetTemp}</strong>
                     </p>
                     <p className="text-xs text-ink leading-relaxed font-normal">
-                      {step.keyAction}
+                      {fmtYeast(step.keyAction, stepNum)}
                     </p>
                     {stepDynSummary && (
                       <div className="text-xs font-bold text-emerald-900 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg inline-block mt-1">
-                        مقدار پویا ({effectiveRoadmapPlan.params.grapeWeightKg}kg): {stepDynSummary}
+                        مقدار پویا ({effectiveRoadmapPlan.params.grapeWeightKg}kg): {fmtYeast(stepDynSummary, stepNum)}
                       </div>
                     )}
                     {stepEquipGuide && (
@@ -2417,10 +2430,10 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
                         <span className="font-bold text-wine">
                           روش اجرا با تجهیزات کارگاه شما ({stepEquipGuide.badgeFa}):
                         </span>
-                        <p className="mt-1 text-ink">{stepEquipGuide.instructionFa}</p>
+                        <p className="mt-1 text-ink">{fmtYeast(stepEquipGuide.instructionFa, stepNum)}</p>
                         {stepEquipGuide.warningFa && (
                           <div className="mt-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-ink">
-                            جایگزین علمی ماده ناموجود: {stepEquipGuide.warningFa}
+                            جایگزین علمی ماده ناموجود: {fmtYeast(stepEquipGuide.warningFa, stepNum)}
                           </div>
                         )}
                       </div>
@@ -2433,6 +2446,20 @@ export const ProcessRoadmapTracker: React.FC<ProcessRoadmapTrackerProps> = ({
                         {`پروفایل مخمر انتخابی مخزن (${activeTankYeastStrain.nameFa}): دمای آبرسانی ${activeTankYeastStrain.rehydrationTempC}°C • بازه تخمیر بهینه ${activeTankYeastStrain.tempOptMinC}–${activeTankYeastStrain.tempOptMaxC}°C • ضریب نیتروژن ×${activeTankYeastStrain.yanMultiplier} • گلیسیرین درونزاد ${activeTankYeastStrain.glycerolYieldGL} g/L`}
                       </div>
                     )}
+                    {[16, 17, 19].includes(stepNum) &&
+                      batchNutrientOptimization.isOptimizedFromCustomInventory && (() => {
+                        const optTank =
+                          batchNutrientOptimization.tanks[quickTankState] ??
+                          batchNutrientOptimization.tanks['tank-a'];
+                        return (
+                          <div
+                            data-testid={`roadmap-step-sna-opt-${stepNum}`}
+                            className="rounded-xl border border-line bg-surface p-2.5 mt-2 text-xs text-ink"
+                          >
+                            {`دوز بهینه‌شده بر اساس موجودی مغذی شما (${batchNutrientOptimization.strategySummaryFa}): نوبت ۱: ${optTank.sna1.fermaidOGrams}g O ${optTank.sna1.fermaidKGrams > 0 ? `+ ${optTank.sna1.fermaidKGrams}g K` : ''} | نوبت ۲: ${optTank.sna2.fermaidKGrams}g K + ${optTank.sna2.dapGrams}g DAP ${optTank.sna2.fermaidOGrams > 0 ? `+ ${optTank.sna2.fermaidOGrams}g O` : ''} | نوبت ۳: ${optTank.sna3.fermaidOGrams}g O`}
+                          </div>
+                        );
+                      })()}
                   </div>
                 </div>
 

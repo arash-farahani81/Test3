@@ -53,12 +53,10 @@ export function getEffectiveLiquidVolume(
   mashYieldFactor: number = 0.84
 ): number {
   if (volumeL <= 0) return 0;
-  const isExplicitMashBasis =
-    isUnpressedRedMustOrBasis === 'gross_mash' || isUnpressedRedMustOrBasis === 'must';
-  const isBooleanMash =
-    isUnpressedRedMustOrBasis === true &&
-    !(Math.round(volumeL) !== 100 && isAlreadyLiquidVolume(volumeL));
-  const isGrossMash = isExplicitMashBasis || isBooleanMash;
+  const isGrossMash =
+    isUnpressedRedMustOrBasis === true ||
+    isUnpressedRedMustOrBasis === 'gross_mash' ||
+    isUnpressedRedMustOrBasis === 'must';
   const factor = isGrossMash
     ? mashYieldFactor > 0 && mashYieldFactor <= 1
       ? mashYieldFactor
@@ -130,7 +128,13 @@ export function normalizeEnologyNumericInput(
     }
     cleaned = cleaned.replace(/[٫،]/g, ',');
     if (cleaned.includes(',') && cleaned.includes('.')) {
-      cleaned = cleaned.replace(/,/g, '');
+      if (cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')) {
+        // European format e.g. "1.234,5" -> '.' is thousands, ',' is decimal
+        cleaned = cleaned.replace(/\./g, '').replace(/,/g, '.');
+      } else {
+        // US/UK format e.g. "1,234.5" -> ',' is thousands, '.' is decimal
+        cleaned = cleaned.replace(/,/g, '');
+      }
     } else if (cleaned.includes(',')) {
       const commaCount = (cleaned.match(/,/g) || []).length;
       if (
@@ -420,28 +424,34 @@ export function calculateChaptalization(
   brixDeficit: number;
   sugarNeededGrams: number;
   sugarNeededKg: number;
+  gramsPerLiterPerBrix: number;
   volumeExpansionL: number;
   finalLiquidVolumeL: number;
 } {
   const effectiveLiquidVolumeL = getEffectiveLiquidVolume(volumeL, isUnpressedRedMust, mashYieldFactor);
-  if (effectiveLiquidVolumeL <= 0 || currentBrix >= targetBrix) {
+  if (effectiveLiquidVolumeL <= 0 || currentBrix >= targetBrix || targetBrix >= 99) {
     return {
       brixDeficit: 0,
       sugarNeededGrams: 0,
       sugarNeededKg: 0,
+      gramsPerLiterPerBrix: 0,
       volumeExpansionL: 0,
       finalLiquidVolumeL: effectiveLiquidVolumeL
     };
   }
   const brixDeficit = Math.round((targetBrix - currentBrix) * 10) / 10;
-  const sugarNeededGrams = Math.round(brixDeficit * 10.8 * effectiveLiquidVolumeL);
+  const initialSG = currentBrix > 0 ? 1 + currentBrix / (258.6 - currentBrix * 0.88) : 1.0;
+  const initialMassGrams = effectiveLiquidVolumeL * initialSG * 1000;
+  const sugarNeededGrams = Math.round(initialMassGrams * ((targetBrix - currentBrix) / (100 - targetBrix)));
   const sugarNeededKg = Math.round((sugarNeededGrams / 1000) * 100) / 100;
+  const gramsPerLiterPerBrix = Math.round((sugarNeededGrams / (effectiveLiquidVolumeL * brixDeficit)) * 10) / 10;
   const volumeExpansionL = Math.round((sugarNeededGrams / 1000) * 0.62 * 100) / 100;
   const finalLiquidVolumeL = Math.round((effectiveLiquidVolumeL + volumeExpansionL) * 100) / 100;
   return {
     brixDeficit,
     sugarNeededGrams,
     sugarNeededKg,
+    gramsPerLiterPerBrix,
     volumeExpansionL,
     finalLiquidVolumeL
   };
@@ -516,7 +526,7 @@ export function calculateRefractometerCorrection(
  */
 export function calculateSNAAmounts(
   volumeL: number,
-  brix: number = 22,
+  brix?: number,
   sgOrStrain: number | 'low' | 'medium' | 'high' = 'medium',
   naturalYAN: number = 100,
   sgOptional?: number,
@@ -533,10 +543,14 @@ export function calculateSNAAmounts(
 ) {
   const effectiveVolumeL = getEffectiveLiquidVolume(Math.max(0, volumeL), isUnpressedRedMust, mashYieldFactor);
   const explicitSG = typeof sgOrStrain === 'number' ? sgOrStrain : sgOptional;
+  const brixWasOmitted = brix === undefined;
+  const rawBrix = brix ?? 22;
   const effectiveBrix =
-    explicitSG && explicitSG > 0 && brix === 22 && Math.abs(explicitSG - 1.092) >= 0.004
+    explicitSG &&
+    explicitSG > 0 &&
+    (brixWasOmitted || (rawBrix === 22 && Math.abs(explicitSG - 1.092) >= 0.004))
       ? Math.max(0, Math.round(261.3 * (1 - 1 / explicitSG) * 10) / 10)
-      : Math.max(0, brix);
+      : Math.max(0, rawBrix);
 
   const strainMultiplier =
     customRates?.yanMultiplierOverride && customRates.yanMultiplierOverride > 0
@@ -560,8 +574,8 @@ export function calculateSNAAmounts(
   const targetYAN = Math.round(sugarGL * strainMultiplier);
   const neededYAN = Math.max(0, targetYAN - naturalYAN);
 
-  // Baseline Needed YAN at 22 Brix (SG 1.092 -> Sugar 240 g/L -> Target 252 -> Needed 152 mg N/L)
-  const baselineNeededYAN = 152;
+  // Baseline needed YAN for 400kg Sardasht protocol at 22 Bx (SG 1.092 -> 240.2 g/L sugar * 1.05 = 252 mg/L target - 100 mg/L natural = 152 mg/L)
+  const baselineNeededYAN = MASTER_PROTOCOL_CONFIG.stoichiometry.yanScaleBaselineMgL;
   const yanScale = neededYAN > 0 ? neededYAN / baselineNeededYAN : 0;
 
   const fermaidO1Rate = customRates?.fermaidO1RateGL ?? 0.25;
@@ -928,11 +942,22 @@ export function buildCalculatorDirectAdditions(params: {
   primaryAmount: number;
   secondaryAmount?: number;
   tertiaryAmount?: number;
+  quaternaryAmount?: number;
   calculatedSO2MgL?: number;
   phShiftMode?: 'acidification' | 'deacidification' | 'none';
   noteFa?: string;
 }): Array<Omit<ChemicalAddition, 'id'>> {
-  if (params.primaryAmount <= 0 || params.referenceVolumeL <= 0) {
+  const hasSecondarySna1 =
+    params.kind === 'sna_1' && (params.secondaryAmount ?? 0) > 0;
+  const hasSecondarySna2 =
+    params.kind === 'sna_2' &&
+    ((params.secondaryAmount ?? 0) > 0 ||
+      (params.tertiaryAmount ?? 0) > 0 ||
+      (params.quaternaryAmount ?? 0) > 0);
+  if (
+    (params.primaryAmount <= 0 && !hasSecondarySna1 && !hasSecondarySna2) ||
+    params.referenceVolumeL <= 0
+  ) {
     return [];
   }
 
@@ -1014,8 +1039,8 @@ export function buildCalculatorDirectAdditions(params: {
       ];
     }
 
-    case 'sna_1':
-      return [
+    case 'sna_1': {
+      const sna1Items: Array<Omit<ChemicalAddition, 'id'>> = [
         {
           ...baseFields,
           compoundName: 'نیتروژن آلی (Fermaid O)',
@@ -1027,6 +1052,21 @@ export function buildCalculatorDirectAdditions(params: {
           purpose: 'تامین نیتروژن آلی اسیدهای آمینه در نوبت اول تغذیه'
         }
       ];
+      if (params.secondaryAmount && round2(params.secondaryAmount) > 0) {
+        sna1Items.push({
+          ...baseFields,
+          compoundName: 'مکمل مخمر Fermaid K (جبرانی SNA-1)',
+          compoundType: 'fermaid_k' as StructuredCompoundType,
+          amount: round2(params.secondaryAmount),
+          unit: 'g',
+          referenceVolumeL: params.referenceVolumeL,
+          milestoneId: 'sna-1',
+          stageTitle: 'تغذیه نوبت اول مخمر (SNA-1 — بهینه‌شده با موجودی)',
+          purpose: 'جبران کسری نیتروژن نوبت اول با Fermaid K'
+        });
+      }
+      return sna1Items.filter((item) => item.amount > 0);
+    }
 
     case 'sna_2': {
       const items: Array<Omit<ChemicalAddition, 'id'>> = [
@@ -1062,6 +1102,19 @@ export function buildCalculatorDirectAdditions(params: {
           purpose: 'تامین کوفاکتور روی در سقف ایمن ۲ mg/L'
         }
       ];
+      if (params.quaternaryAmount && round2(params.quaternaryAmount) > 0) {
+        items.push({
+          ...baseFields,
+          compoundName: 'نیتروژن آلی Fermaid O (جبرانی SNA-2)',
+          compoundType: 'fermaid_o' as StructuredCompoundType,
+          amount: round2(params.quaternaryAmount),
+          unit: 'g',
+          referenceVolumeL: params.referenceVolumeL,
+          milestoneId: 'sna-2-dap',
+          stageTitle: 'تغذیه نوبت دوم مخمر (SNA-2 — بهینه‌شده با موجودی)',
+          purpose: 'جبران کسری نیتروژن نوبت دوم با Fermaid O'
+        });
+      }
       return items.filter((item) => item.amount > 0);
     }
 

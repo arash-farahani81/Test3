@@ -66,6 +66,8 @@
 - **36-Strain Global Yeast Bioprocess Engine (Steps 1–6)**: Complete 36-strain database across 9 global brands (`src/data/yeastStrainsData.ts`), per-tank yeast persistence (`selectedYeastByTank`), strain-specific endogenous SO2 ledger accounting, dynamic YAN/SNA scaling, strain-specific thermal thresholds & H2S/malic/lactic diagnostics, interactive `YeastStrainSelectorModal.tsx`, and end-to-end integration across all 5 tabs and Vintage Passport.
 - **14-Point Deep Code Audit Remediation (Parts 1–3)**: Fixed `getEffectiveLiquidVolume` 3rd arg in chart panel, single-tank (`tankCount === 1`) full-batch volume/dose scaling in `rightNowEngine` & `ProcessRoadmapTracker`, `freeRunPerTankL` direct lookup, `÷ 576` KMS stoichiometry notes, `batchPlan` snapshot enforcement, `enology_global_active_batch_id` sync key, 4-store `hasDemoData()`, `cellarMode` CO2 banner & global modals/tabs, DOCX soft-delete filtering & `sortFermentationLogs`, `'hydrometer_temp'` lab record type, deduplicated `BatchOnboardingWizardModal`, hidden `tank-rose` tab when disabled, and `tsconfig.json` `tsc --noEmit` clean build.
 - **5 High-Impact Functional Bugfixes & Master UI/UX Engineering Plan (Prompts 1–6)**: Universal fluid CSS motion tokens & `prefers-reduced-motion` safety (`src/index.css`), stepped onboarding progress bar & vessel split SVG + preserved `targetRedPH` (`BatchOnboardingWizardModal.tsx`), `IDEAL_DEFAULT_PROTOCOL_PARAMS` alignment in `computeYeastAdjustedSnaPlan` (`yeastStrainsData.ts`), preserved `0.1g` scale precision (`database.ts` & `EnologyUiContext.tsx`), Station D1 Header vessel icons & circular timer ring (`Header.tsx`), wall-clock timer persistence (`computeWallClockTimerDeltaSec`), Station D8 prerequisite check badges & multi-compound step addition splitting (`ProcessRoadmapTracker.tsx`), Station D2 Hero Action Window Arc Gauge (`computeHeroWindowArcMetrics`) & Bottling Gate Morphing Shield/Lock SVG (`RightNowActionCenter.tsx`), Station D3/D5 Living Tank dual-layer waves, thermal aura, two-phase headspace safety, Pigeage squash, Radial Health Gauge & Sugar Depletion Pill Bar (`LivingTankVisualTwin.tsx` & `FermentationTracker.tsx`), Station D4 Velocity Trend Vector Arrow (`computeVelocityVectorArrowMetrics`), viscosity gradient, sibling tank curve & yeast-aware temperature corridor (`BandedFermentationChartAndSO2Panel.tsx`), and Station D6/D7 Chemical Addition Incompatibility Interlock (`evaluateChemicalAdditionCompatibility`), Expanding Column Thermometer SVG, Dynamic Titration Flask SVGs & Paper Chromatography Spot Rise SVG (`QuickTenSecondLogModal.tsx`, `InteractiveLabWizardsPanel.tsx`, `TestingGuide.tsx`).
+- **Nutrient Inventory & Smart SNA Optimizer Engine (Steps 1–4): 100% Completed** (`NutrientInventoryGrams` schema, constrained stoichiometric `optimizeNutrientScheduleFromInventory` engine & unit tests, `EnologyUiContext` live optimization state, `EquipmentOnboardingWizardModal` Steps 5–6 gram inventory & deficit preview, `TestingGuide` SOP-05 interactive optimizer & compensatory direct ledger doses, and `rightNowEngine` / `RightNowActionCenter` / `ProcessRoadmapTracker` dynamic milestone & step integration).
+- **Claude Core Logic & Database Audit Remediation (Parts 1 & 2): 100% Completed** (exact species mass-balance `calculateChaptalization`, explicit `isUnpressedRedMustOrBasis` priority in `getEffectiveLiquidVolume`, European vs. US mixed separator disambiguation in `normalizeEnologyNumericInput`, `MASTER_PROTOCOL_CONFIG.stoichiometry.yanScaleBaselineMgL` & explicit `brix` in `calculateSNAAmounts`, newly dry vs. long-term aging post-fermentation thermal thresholds in `analyzeLogEntryHealth`, `sugarAddedIntentionally` Typo Shield bypass & UI confirmation button in `QuickTenSecondLogModal`, IndexedDB connection cleanup, timestamped same-day corrupt JSON preservation, and hardened `importDatabaseJSON` with undated merge protection, pre-replace snapshot, and rollback).
 
 ## Next Queue
 1. Master UI/UX & Engineering Plan Prompt 7 of 7 (Stations D9 & D10 + Final Polish)
@@ -156,6 +158,7 @@ export interface WineBatch {
   protocolParamsSnapshot?: Record<string, number | string>;
   selectedYeastByTank?: Partial<Record<TankId, string>>;
   volumeBasis?: 'liquid_phase' | 'gross_mash' | 'liquid' | 'must';
+  nutrientInventoryGrams?: NutrientInventoryGrams;
 }
 export interface ChemicalAddition {
   id: string;
@@ -286,6 +289,14 @@ export interface AvailableReagentsConfig {
   hasPotassiumBicarbonate: boolean;
   hasOakChipsOrStaves: boolean;
 }
+export interface NutrientInventoryGrams {
+  isCustomInventoryActive: boolean;
+  goFermGrams: number;
+  fermaidOGrams: number;
+  fermaidKGrams: number;
+  dapGrams: number;
+  zincSulfateGrams: number;
+}
 export interface CellarEquipmentProfile {
   presetId: EquipmentPresetId;
   onboardingCompleted: boolean;
@@ -311,6 +322,7 @@ export interface CellarEquipmentProfile {
   transferAndBottlingMethod: TransferAndBottlingMethodType;
   reagents: AvailableReagentsConfig;
   selectedYeastByTank?: Partial<Record<TankId, string>>;
+  nutrientInventoryGrams?: NutrientInventoryGrams;
 }
 export interface EnologyDatabaseExport {
   version: string;
@@ -330,6 +342,14 @@ export const AvailableReagentsConfigSchema = z.object({
   hasCopperSulfate: z.boolean(),
   hasPotassiumBicarbonate: z.boolean(),
   hasOakChipsOrStaves: z.boolean()
+});
+export const NutrientInventoryGramsSchema = z.object({
+  isCustomInventoryActive: z.boolean(),
+  goFermGrams: z.number(),
+  fermaidOGrams: z.number(),
+  fermaidKGrams: z.number(),
+  dapGrams: z.number(),
+  zincSulfateGrams: z.number()
 });
 export const CellarEquipmentProfileSchema = z.object({
   presetId: z.enum([
@@ -379,7 +399,8 @@ export const CellarEquipmentProfileSchema = z.object({
     'gravity_siphon_decant_only'
   ]),
   reagents: AvailableReagentsConfigSchema,
-  selectedYeastByTank: z.record(z.string(), z.string()).optional()
+  selectedYeastByTank: z.record(z.string(), z.string()).optional(),
+  nutrientInventoryGrams: NutrientInventoryGramsSchema.optional()
 });
 export const TankIdSchema = z.enum(['tank-a', 'tank-b', 'tank-rose']);
 export const StructuredCompoundTypeSchema = z.enum([
@@ -427,7 +448,8 @@ export const WineBatchSchema = z.object({
   updatedAtMs: z.number().optional(),
   protocolParamsSnapshot: z.record(z.string(), z.union([z.number(), z.string()])).optional(),
   selectedYeastByTank: z.record(z.string(), z.string()).optional(),
-  volumeBasis: z.enum(['liquid_phase', 'gross_mash', 'liquid', 'must']).optional()
+  volumeBasis: z.enum(['liquid_phase', 'gross_mash', 'liquid', 'must']).optional(),
+  nutrientInventoryGrams: NutrientInventoryGramsSchema.optional()
 });
 export const ChemicalAdditionSchema = z.object({
   id: z.string(),
@@ -945,6 +967,9 @@ export interface EnologyUiContextValue {
   isYeastSelectorOpen: boolean;
   openYeastSelectorModal: () => void;
   closeYeastSelectorModal: () => void;
+  nutrientInventory: NutrientInventoryGrams;
+  updateNutrientInventory: (nextInventory: NutrientInventoryGrams) => void;
+  batchNutrientOptimization: BatchNutrientOptimizationResult;
   // ...plus batch, tank selection, 5-tab nav, deep-links, modals, glossary, and dataVersion fields
 }
 export const EnologyUiProvider: React.FC<{ children: React.ReactNode }>;
@@ -1014,16 +1039,51 @@ export function computeYeastAcidityAndGlycerolImpact(params: { strainId?: string
 export function recommendYeastStrainsForGoal(goal: 'classic_sardasht_red' | 'velvety_reserve_red' | 'natural_acidity_boost' | 'zero_h2s_safety' | 'aromatic_saignee_rose' | 'stuck_fermentation_rescue'): YeastStrainProfile[];
 ```
 
+## 10. `src/utils/nutrientInventoryOptimizer.ts`
+```ts
+export interface TankOptimizedSnaSchedule {
+  tankId: TankId; tankLabelFa: string; liquidVolumeL: number; yeastStrain: YeastStrainProfile;
+  yeastNeededGrams: number; goFermIdealGrams: number; goFermAllocatedGrams: number;
+  targetYANMgL: number; neededYANMgL: number; suppliedChemicalYANMgL: number;
+  suppliedBioEquivalentYANMgL: number; unmetBioYanDeficitMgL: number;
+  sna1: { fermaidOGrams: number; fermaidKGrams: number; noteFa: string };
+  sna2: { fermaidKGrams: number; dapGrams: number; zincGrams: number; fermaidOGrams: number; noteFa: string };
+  sna3: { fermaidOGrams: number; noteFa: string };
+}
+export interface NutrientTopUpRecommendation {
+  id: 'buy_fermaid_o' | 'buy_fermaid_k_dap' | 'boiled_yeast_hulls_fallback' | 'switch_low_yan_yeast';
+  titleFa: string; amountTextFa: string; explanationFa: string; suggestedStrainIds?: string[];
+}
+export interface BatchNutrientOptimizationResult {
+  isOptimizedFromCustomInventory: boolean;
+  strategyMode: 'ideal_standard' | 'rebalanced_surplus_k_dap' | 'rebalanced_surplus_fermaid_o' | 'deficit_warning';
+  strategySummaryFa: string; hasNitrogenDeficit: boolean; hasGoFermDeficit: boolean;
+  totalNeededBioYanAverageMgL: number; totalSuppliedBioYanAverageMgL: number; maxUnmetBioYanDeficitMgL: number;
+  inventoryUsedGrams: { goFerm: number; fermaidO: number; fermaidK: number; dap: number; zinc: number };
+  inventoryRemainingGrams: { goFerm: number; fermaidO: number; fermaidK: number; dap: number; zinc: number };
+  tanks: Record<TankId, TankOptimizedSnaSchedule>;
+  deficitAlertFa: string | null;
+  recommendations: NutrientTopUpRecommendation[];
+}
+export function getDefaultIdealNutrientInventoryGrams(grapeWeightKg?: number, produceRose?: boolean): NutrientInventoryGrams;
+export function optimizeNutrientScheduleFromInventory(params: {
+  inventory?: NutrientInventoryGrams | null; redLiquidPerTankL?: number; redTankCount?: 1 | 2;
+  roseLiquidL?: number; produceRose?: boolean; initialBrix?: number; initialSG?: number;
+  naturalYANMgL?: number; selectedYeastByTank?: Partial<Record<TankId, string>>;
+}): BatchNutrientOptimizationResult;
+```
+
 ## 5. UI Component Wiring & State Skeleton (`src/context/EnologyUiContext.tsx` & `src/components/*.tsx` — JSX Omitted)
-### `src/context/EnologyUiContext.tsx` (1214 lines)
+### `src/context/EnologyUiContext.tsx` (1315 lines)
 ```ts
 // --- Imports ---
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import type { CellarEquipmentProfile, EquipmentPresetId, TankId, WineBatch } from '../types/index.ts';
+import type { CellarEquipmentProfile, EquipmentPresetId, NutrientInventoryGrams, TankId, WineBatch } from '../types/index.ts';
 import { enologyDb } from '../db/enologyDatabase.ts';
 import { evaluateEquipmentCapabilities, type EquipmentCapabilitiesSummary, type EquipmentProfileInput } from '../utils/equipmentAdapterEngine.ts';
 import { getYeastStrainById, type YeastStrainProfile } from '../data/yeastStrainsData.ts';
-import { IDEAL_DEFAULT_PROTOCOL_PARAMS, notifyFlexibleProtocolSync, type FlexibleProtocolParams } from '../data/masterProtocolConfig.ts';
+import { IDEAL_DEFAULT_PROTOCOL_PARAMS, getEffectiveProtocolPlanForBatch, notifyFlexibleProtocolSync, type FlexibleProtocolParams } from '../data/masterProtocolConfig.ts';
+import { getDefaultIdealNutrientInventoryGrams, optimizeNutrientScheduleFromInventory, type BatchNutrientOptimizationResult } from '../utils/nutrientInventoryOptimizer.ts';
 // --- Props & Types ---
 export type GlobalTankSelection = 'tank-a' | 'tank-b' | 'tank-rose' | 'both-red';
 export type AppFiveTabView = 'today' | 'tanks' | 'lab' | 'roadmap' | 'more';
@@ -1087,21 +1147,21 @@ export interface GlossaryTermProps {
   className?: string;
 }
 // --- State & Protocol Hooks ---
-L457: const [dataVersion, setDataVersion] = useState<number>(0);
-L458: const [batches, setBatches] = useState<WineBatch[]>(() => enologyDb.getBatches());
-L460: const [activeBatchIdState, setActiveBatchIdState] = useState<string>(() => {
-L470: const [rawSelectedTank, setRawSelectedTank] = useState<GlobalTankSelection>(() => {
-L486: const [activeFiveTabState, setActiveFiveTabState] = useState<AppFiveTabView>(() => {
-L503: const [fontScaleState, setFontScaleState] = useState<FontScaleMode>(() => {
-L511: const [scalePrecisionState, setScalePrecisionState] = useState<ScalePrecisionGrams>(() => {
-L521: const [labDeepLink, setLabDeepLink] = useState<LabDeepLinkRequest | null>(null);
-L522: const [roadmapHighlightStepNumber, setRoadmapHighlightStepNumber] = useState<
-L526: const [isQuickLogOpen, setIsQuickLogOpen] = useState<boolean>(false);
-L529: const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
-L530: const [activeGlossaryKey, setActiveGlossaryKey] = useState<string | null>(null);
-L532: const [equipmentProfileState, setEquipmentProfileState] = useState<CellarEquipmentProfile>(() =>
-L535: const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState<boolean>(
-L538: const [isYeastSelectorOpen, setIsYeastSelectorOpen] = useState<boolean>(false);
+L469: const [dataVersion, setDataVersion] = useState<number>(0);
+L470: const [batches, setBatches] = useState<WineBatch[]>(() => enologyDb.getBatches());
+L472: const [activeBatchIdState, setActiveBatchIdState] = useState<string>(() => {
+L482: const [rawSelectedTank, setRawSelectedTank] = useState<GlobalTankSelection>(() => {
+L498: const [activeFiveTabState, setActiveFiveTabState] = useState<AppFiveTabView>(() => {
+L515: const [fontScaleState, setFontScaleState] = useState<FontScaleMode>(() => {
+L523: const [scalePrecisionState, setScalePrecisionState] = useState<ScalePrecisionGrams>(() => {
+L533: const [labDeepLink, setLabDeepLink] = useState<LabDeepLinkRequest | null>(null);
+L534: const [roadmapHighlightStepNumber, setRoadmapHighlightStepNumber] = useState<
+L538: const [isQuickLogOpen, setIsQuickLogOpen] = useState<boolean>(false);
+L541: const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
+L542: const [activeGlossaryKey, setActiveGlossaryKey] = useState<string | null>(null);
+L544: const [equipmentProfileState, setEquipmentProfileState] = useState<CellarEquipmentProfile>(() =>
+L547: const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState<boolean>(
+L550: const [isYeastSelectorOpen, setIsYeastSelectorOpen] = useState<boolean>(false);
 ```
 
 ### `src/components/BandedFermentationChartAndSO2Panel.tsx` (1625 lines)
@@ -1247,14 +1307,15 @@ import { TestingGuide, type TestingGuideProps } from './TestingGuide.tsx';
 // (Stateless component)
 ```
 
-### `src/components/EquipmentOnboardingWizardModal.tsx` (1226 lines)
+### `src/components/EquipmentOnboardingWizardModal.tsx` (1486 lines)
 ```ts
 // --- Imports ---
 import React, { useEffect, useMemo, useState } from 'react';
 import { /* icons */ } from 'lucide-react';
-import { DEFAULT_EQUIPMENT_PROFILE_PRO, EQUIPMENT_PRESET_ARTISAN_HOME, EQUIPMENT_PRESET_MINIMAL_PLUS, type CellarEquipmentProfile } from '../types/index.ts';
+import { DEFAULT_EQUIPMENT_PROFILE_PRO, EQUIPMENT_PRESET_ARTISAN_HOME, EQUIPMENT_PRESET_MINIMAL_PLUS, type CellarEquipmentProfile, type NutrientInventoryGrams } from '../types/index.ts';
 import { evaluateEquipmentCapabilities, type EquipmentProfileInput } from '../utils/equipmentAdapterEngine.ts';
 import { useEnologyUi, type ScalePrecisionGrams } from '../context/EnologyUiContext.tsx';
+import { getDefaultIdealNutrientInventoryGrams, optimizeNutrientScheduleFromInventory } from '../utils/nutrientInventoryOptimizer.ts';
 // --- Props & Types ---
 export interface EquipmentOnboardingWizardModalProps {
   isOpen: boolean;
@@ -1290,11 +1351,11 @@ interface WizardDraftState {
   reagents11: ExtendedReagentsDraft;
 }
 // --- State & Protocol Hooks ---
-L115: const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
-L116: const [draft, setDraft] = useState<WizardDraftState>(() =>
+L130: const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
+L131: const [draft, setDraft] = useState<WizardDraftState>(() =>
 ```
 
-### `src/components/FermentationTracker.tsx` (4125 lines)
+### `src/components/FermentationTracker.tsx` (4129 lines)
 ```ts
 // --- Imports ---
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -1314,6 +1375,7 @@ import { useFlexibleProtocol, getEffectiveProtocolPlanForBatch } from '../data/m
 import { getSmartAdditivePresets, getSmartDailyStagePresets, getSmartLabPresets } from '../data/smartLoggingPresets.ts';
 import { useEnologyUi } from '../context/EnologyUiContext.tsx';
 import { getCurrentPersianDateTimeStr } from '../utils/persianDate.ts';
+import { formatProtocolTextWithYeast } from '../data/yeastStrainsData.ts';
 // --- Props & Types ---
 interface FermentationTrackerProps {
   onNavigateToTestingGuide?: (
@@ -1340,76 +1402,76 @@ interface DetectedTriggerInfo {
   }>;
 }
 // --- State & Protocol Hooks ---
-L115: const { params: flexParams, plan: flexPlan, isModifiedFromIdeal } = useFlexibleProtocol();
-L145: const [showFlexibleCustomizer, setShowFlexibleCustomizer] = useState<boolean>(false);
-L152: const [tankId, setTankId] = useLocalStorageState<TankId>('enology_tracking_selected_tank', effectiveSingleTankId || 'tank-a');
-L176: const [logs, setLogs] = useState<FermentationLogEntry[]>(() =>
-L179: const [additions, setAdditions] = useState<ChemicalAddition[]>(() =>
-L182: const [labAnalyses, setLabAnalyses] = useState<LabAnalysisRecord[]>(() =>
-L193: const [showAddModal, setShowAddModal] = useState(false);
-L194: const [showAddChemicalModal, setShowAddChemicalModal] = useState(false);
-L195: const [showAddLabModal, setShowAddLabModal] = useState(false);
-L198: const [selectedLogId, setSelectedLogId] = useLocalStorageState<string | null>('enology_tracking_selected_log_id', null);
-L199: const [activeChart, setActiveChart] = useLocalStorageState<'sg' | 'temp' | 'ph' | 'all'>('enology_tracking_active_chart', 'sg');
-L200: const [logDisplayMode, setLogDisplayMode] = useLocalStorageState<'all' | 'real' | 'benchmark'>('enology_log_display_mode', 'all');
-L201: const [toastMessage, setToastMessage] = useState<string | null>(null);
-L204: const [localShowAllDetails, setLocalShowAllDetails] = useLocalStorageState<boolean>('enology_advisor_show_all', false);
-L208: const [expandedStatusRows, setExpandedStatusRows] = useState<{
-L227: const [logbookTab, setLogbookTab] = useLocalStorageState<LogbookTab>('enology_logbook_active_tab', 'daily-logs');
-L228: const [filterAdditionsByTank, setFilterAdditionsByTank] = useLocalStorageState<boolean>('enology_filter_additions_tank', true);
-L229: const [filterLabByTank, setFilterLabByTank] = useLocalStorageState<boolean>('enology_filter_lab_tank', true);
-L232: const [simTemp, setSimTemp] = useLocalStorageState<number>('enology_prediction_sim_temp', 24.0);
-L233: const [targetSGChoice, setTargetSGChoice] = useLocalStorageState<number>('enology_prediction_target_sg', tankId === 'tank-rose' ? 0.991 :...
-L236: const [formDate, setFormDate] = useLocalStorageState<string>(
-L245: const [formDay, setFormDay] = useLocalStorageState<number>('enology_form_day', 1);
-L246: const [formStage, setFormStage] = useLocalStorageState<string>('enology_form_stage', '');
-L247: const [formBrix, setFormBrix] = useLocalStorageState<number>('enology_form_brix', 20.0);
-L248: const [formSG, setFormSG] = useLocalStorageState<number>('enology_form_sg', 1.083);
-L249: const [formTempCap, setFormTempCap] = useLocalStorageState<number>('enology_form_temp_cap', 23.0);
-L250: const [formTempRoom, setFormTempRoom] = useLocalStorageState<number>('enology_form_temp_room', 21.0);
-L251: const [formPH, setFormPH] = useLocalStorageState<number>('enology_form_ph', 3.52);
-L252: const [formTA, setFormTA] = useLocalStorageState<number>('enology_form_ta', 6.8);
-L253: const [formFreeSO2, setFormFreeSO2] = useLocalStorageState<number | undefined>('enology_form_free_so2', undefined);
-L254: const [formPigeage, setFormPigeage] = useLocalStorageState<boolean>('enology_form_pigeage', true);
-L255: const [formPigeageCount, setFormPigeageCount] = useLocalStorageState<number>('enology_form_pigeage_count', 3);
-L256: const [formNote, setFormNote] = useLocalStorageState<string>('enology_form_note', '');
-L257: const [formIsTrigger, setFormIsTrigger] = useLocalStorageState<boolean>('enology_form_is_trigger', true);
-L258: const [autoRecordTriggerAddition, setAutoRecordTriggerAddition] = useState<boolean>(true);
-L259: const [formPhTouched, setFormPhTouched] = useState(false);
-L260: const [formTaTouched, setFormTaTouched] = useState(false);
-L263: const [selectedChemPresetId, setSelectedChemPresetId] = useState<string>('fermaid-o-sna1');
-L264: const [chemTankId, setChemTankId] = useState<TankId>(tankId);
-L265: const [chemTimestamp, setChemTimestamp] = useState<string>('');
-L266: const [chemStageTitle, setChemStageTitle] = useState<string>('تغذیه مرحله‌ای / اصلاح شیمیایی');
-L267: const [chemCompoundName, setChemCompoundName] = useState<string>('Fermaid O (نیتروژن ارگانیک)');
-L268: const [chemCompoundType, setChemCompoundType] = useState<StructuredCompoundType>('fermaid_o');
-L269: const [chemReferenceVolumeL, setChemReferenceVolumeL] = useState<number>(defaultRefVol);
-L273: const [chemPubchemCid, setChemPubchemCid] = useState<number | undefined>(undefined);
-L274: const [chemAmount, setChemAmount] = useState<number>(33.0);
-L275: const [chemUnit, setChemUnit] = useState<'g' | 'g/hL' | 'mg/L' | 'mL' | 'kg'>('g');
-L276: const [chemPurpose, setChemPurpose] = useState<string>('تامین اسیدهای آمینه ارگانیک مخمر');
-L277: const [chemNote, setChemNote] = useState<string>('');
-L278: const [chemLotNumber, setChemLotNumber] = useState<string>('');
-L279: const [pendingAdditionConfirm, setPendingAdditionConfirm] = useState<boolean>(false);
-L280: const [undoAdditionId, setUndoAdditionId] = useState<string | null>(null);
-L281: const [undoDeletedRecord, setUndoDeletedRecord] = useState<{
-L290: const [selectedDailyPresetId, setSelectedDailyPresetId] = useState<string>('');
-L291: const [selectedLabPresetId, setSelectedLabPresetId] = useState<string>('lab-ripper-so2');
-L294: const [labTankId, setLabTankId] = useState<TankId>(tankId);
-L295: const [labDate, setLabDate] = useState<string>('');
-L296: const [labTestType, setLabTestType] = useState<LabAnalysisRecord['testType']>('ripper_so2');
-L297: const [labAnalyte, setLabAnalyte] = useState<string>('سولفیت آزاد (Free SO2)');
-L298: const [labValue, setLabValue] = useState<string>('32');
-L299: const [labUnit, setLabUnit] = useState<string>('mg/L (ppm)');
-L300: const [labActionTaken, setLabActionTaken] = useState<string>('در محدوده ایمن؛ نیازی به تزریق KMS نیست');
-L301: const [labNotes, setLabNotes] = useState<string>('');
-L304: const [sensoryClarity, setSensoryClarity] = useState<number>(5);
-L305: const [sensoryAroma, setSensoryAroma] = useState<number>(4);
-L306: const [sensoryAcidity, setSensoryAcidity] = useState<number>(4);
-L307: const [sensoryTannin, setSensoryTannin] = useState<number>(4);
-L308: const [sensoryOverall, setSensoryOverall] = useState<number>(4);
-L309: const [sensoryFaults, setSensoryFaults] = useState<string[]>([]);
-L310: const [sensoryNotes, setSensoryNotes] = useState<string>('');
+L116: const { params: flexParams, plan: flexPlan, isModifiedFromIdeal } = useFlexibleProtocol();
+L146: const [showFlexibleCustomizer, setShowFlexibleCustomizer] = useState<boolean>(false);
+L153: const [tankId, setTankId] = useLocalStorageState<TankId>('enology_tracking_selected_tank', effectiveSingleTankId || 'tank-a');
+L177: const [logs, setLogs] = useState<FermentationLogEntry[]>(() =>
+L180: const [additions, setAdditions] = useState<ChemicalAddition[]>(() =>
+L183: const [labAnalyses, setLabAnalyses] = useState<LabAnalysisRecord[]>(() =>
+L194: const [showAddModal, setShowAddModal] = useState(false);
+L195: const [showAddChemicalModal, setShowAddChemicalModal] = useState(false);
+L196: const [showAddLabModal, setShowAddLabModal] = useState(false);
+L199: const [selectedLogId, setSelectedLogId] = useLocalStorageState<string | null>('enology_tracking_selected_log_id', null);
+L200: const [activeChart, setActiveChart] = useLocalStorageState<'sg' | 'temp' | 'ph' | 'all'>('enology_tracking_active_chart', 'sg');
+L201: const [logDisplayMode, setLogDisplayMode] = useLocalStorageState<'all' | 'real' | 'benchmark'>('enology_log_display_mode', 'all');
+L202: const [toastMessage, setToastMessage] = useState<string | null>(null);
+L205: const [localShowAllDetails, setLocalShowAllDetails] = useLocalStorageState<boolean>('enology_advisor_show_all', false);
+L209: const [expandedStatusRows, setExpandedStatusRows] = useState<{
+L228: const [logbookTab, setLogbookTab] = useLocalStorageState<LogbookTab>('enology_logbook_active_tab', 'daily-logs');
+L229: const [filterAdditionsByTank, setFilterAdditionsByTank] = useLocalStorageState<boolean>('enology_filter_additions_tank', true);
+L230: const [filterLabByTank, setFilterLabByTank] = useLocalStorageState<boolean>('enology_filter_lab_tank', true);
+L233: const [simTemp, setSimTemp] = useLocalStorageState<number>('enology_prediction_sim_temp', 24.0);
+L234: const [targetSGChoice, setTargetSGChoice] = useLocalStorageState<number>('enology_prediction_target_sg', tankId === 'tank-rose' ? 0.991 :...
+L237: const [formDate, setFormDate] = useLocalStorageState<string>(
+L246: const [formDay, setFormDay] = useLocalStorageState<number>('enology_form_day', 1);
+L247: const [formStage, setFormStage] = useLocalStorageState<string>('enology_form_stage', '');
+L248: const [formBrix, setFormBrix] = useLocalStorageState<number>('enology_form_brix', 20.0);
+L249: const [formSG, setFormSG] = useLocalStorageState<number>('enology_form_sg', 1.083);
+L250: const [formTempCap, setFormTempCap] = useLocalStorageState<number>('enology_form_temp_cap', 23.0);
+L251: const [formTempRoom, setFormTempRoom] = useLocalStorageState<number>('enology_form_temp_room', 21.0);
+L252: const [formPH, setFormPH] = useLocalStorageState<number>('enology_form_ph', 3.52);
+L253: const [formTA, setFormTA] = useLocalStorageState<number>('enology_form_ta', 6.8);
+L254: const [formFreeSO2, setFormFreeSO2] = useLocalStorageState<number | undefined>('enology_form_free_so2', undefined);
+L255: const [formPigeage, setFormPigeage] = useLocalStorageState<boolean>('enology_form_pigeage', true);
+L256: const [formPigeageCount, setFormPigeageCount] = useLocalStorageState<number>('enology_form_pigeage_count', 3);
+L257: const [formNote, setFormNote] = useLocalStorageState<string>('enology_form_note', '');
+L258: const [formIsTrigger, setFormIsTrigger] = useLocalStorageState<boolean>('enology_form_is_trigger', true);
+L259: const [autoRecordTriggerAddition, setAutoRecordTriggerAddition] = useState<boolean>(true);
+L260: const [formPhTouched, setFormPhTouched] = useState(false);
+L261: const [formTaTouched, setFormTaTouched] = useState(false);
+L264: const [selectedChemPresetId, setSelectedChemPresetId] = useState<string>('fermaid-o-sna1');
+L265: const [chemTankId, setChemTankId] = useState<TankId>(tankId);
+L266: const [chemTimestamp, setChemTimestamp] = useState<string>('');
+L267: const [chemStageTitle, setChemStageTitle] = useState<string>('تغذیه مرحله‌ای / اصلاح شیمیایی');
+L268: const [chemCompoundName, setChemCompoundName] = useState<string>('Fermaid O (نیتروژن ارگانیک)');
+L269: const [chemCompoundType, setChemCompoundType] = useState<StructuredCompoundType>('fermaid_o');
+L270: const [chemReferenceVolumeL, setChemReferenceVolumeL] = useState<number>(defaultRefVol);
+L274: const [chemPubchemCid, setChemPubchemCid] = useState<number | undefined>(undefined);
+L275: const [chemAmount, setChemAmount] = useState<number>(33.0);
+L276: const [chemUnit, setChemUnit] = useState<'g' | 'g/hL' | 'mg/L' | 'mL' | 'kg'>('g');
+L277: const [chemPurpose, setChemPurpose] = useState<string>('تامین اسیدهای آمینه ارگانیک مخمر');
+L278: const [chemNote, setChemNote] = useState<string>('');
+L279: const [chemLotNumber, setChemLotNumber] = useState<string>('');
+L280: const [pendingAdditionConfirm, setPendingAdditionConfirm] = useState<boolean>(false);
+L281: const [undoAdditionId, setUndoAdditionId] = useState<string | null>(null);
+L282: const [undoDeletedRecord, setUndoDeletedRecord] = useState<{
+L291: const [selectedDailyPresetId, setSelectedDailyPresetId] = useState<string>('');
+L292: const [selectedLabPresetId, setSelectedLabPresetId] = useState<string>('lab-ripper-so2');
+L295: const [labTankId, setLabTankId] = useState<TankId>(tankId);
+L296: const [labDate, setLabDate] = useState<string>('');
+L297: const [labTestType, setLabTestType] = useState<LabAnalysisRecord['testType']>('ripper_so2');
+L298: const [labAnalyte, setLabAnalyte] = useState<string>('سولفیت آزاد (Free SO2)');
+L299: const [labValue, setLabValue] = useState<string>('32');
+L300: const [labUnit, setLabUnit] = useState<string>('mg/L (ppm)');
+L301: const [labActionTaken, setLabActionTaken] = useState<string>('در محدوده ایمن؛ نیازی به تزریق KMS نیست');
+L302: const [labNotes, setLabNotes] = useState<string>('');
+L305: const [sensoryClarity, setSensoryClarity] = useState<number>(5);
+L306: const [sensoryAroma, setSensoryAroma] = useState<number>(4);
+L307: const [sensoryAcidity, setSensoryAcidity] = useState<number>(4);
+L308: const [sensoryTannin, setSensoryTannin] = useState<number>(4);
+L309: const [sensoryOverall, setSensoryOverall] = useState<number>(4);
+L310: const [sensoryFaults, setSensoryFaults] = useState<string[]>([]);
+L311: const [sensoryNotes, setSensoryNotes] = useState<string>('');
 ```
 
 ### `src/components/FlexibleProtocolCustomizerBar.tsx` (343 lines)
@@ -1541,7 +1603,7 @@ L383: const { plan } = useFlexibleProtocol();
 L384: const [punchingTankId, setPunchingTankId] = useState<TankId | null>(null);
 ```
 
-### `src/components/MasterProtocolView.tsx` (1406 lines)
+### `src/components/MasterProtocolView.tsx` (1412 lines)
 ```ts
 // --- Imports ---
 import React, { useMemo, useState } from 'react';
@@ -1553,6 +1615,7 @@ import { useLocalStorageState } from '../utils/useLocalStorage.ts';
 import { exportDocxReport } from '../utils/exportDocxReport.ts';
 import { enologyDb } from '../db/enologyDatabase.ts';
 import { BioscienceDatabaseView } from './BioscienceDatabaseView.tsx';
+import { formatProtocolTextWithYeast } from '../data/yeastStrainsData.ts';
 import type { CellarEquipmentProfile } from '../types/index.ts';
 // --- Props & Types ---
 export type Pillar4SubView = 'master-protocol' | 'bioscience-kb' | 'export-backup';
@@ -1566,17 +1629,17 @@ interface MasterProtocolViewProps {
   initialPillarSubView?: Pillar4SubView;
 }
 // --- State & Protocol Hooks ---
-L131: const [pillarSubView, setPillarSubView] = useLocalStorageState<Pillar4SubView>(
-L135: const [activeTab, setActiveTab] = useLocalStorageState<
-L138: const [activeSubTab, setActiveSubTab] = useLocalStorageState<'form1' | 'form2' | 'form3' | 'form4'>('enology_protocol_subtab', 'form1');
-L139: const [searchMaterial, setSearchMaterial] = useState('');
-L140: const [downloadSuccess, setDownloadSuccess] = useState(false);
-L149: const [initBrix, setInitBrix] = useLocalStorageState<string>('enology_init_brix', '22.0');
-L150: const [initSG, setInitSG] = useLocalStorageState<string>('enology_init_sg', '1.092');
-L151: const [initPH, setInitPH] = useLocalStorageState<string>('enology_init_ph', '3.52');
-L152: const [initTA, setInitTA] = useLocalStorageState<string>('enology_init_ta', '6.8');
-L153: const [useDynamicBomMode, setUseDynamicBomMode] = useLocalStorageState<boolean>(
-L181: const { params: flexParams, plan: flexPlan } = useFlexibleProtocol();
+L132: const [pillarSubView, setPillarSubView] = useLocalStorageState<Pillar4SubView>(
+L136: const [activeTab, setActiveTab] = useLocalStorageState<
+L139: const [activeSubTab, setActiveSubTab] = useLocalStorageState<'form1' | 'form2' | 'form3' | 'form4'>('enology_protocol_subtab', 'form1');
+L140: const [searchMaterial, setSearchMaterial] = useState('');
+L141: const [downloadSuccess, setDownloadSuccess] = useState(false);
+L150: const [initBrix, setInitBrix] = useLocalStorageState<string>('enology_init_brix', '22.0');
+L151: const [initSG, setInitSG] = useLocalStorageState<string>('enology_init_sg', '1.092');
+L152: const [initPH, setInitPH] = useLocalStorageState<string>('enology_init_ph', '3.52');
+L153: const [initTA, setInitTA] = useLocalStorageState<string>('enology_init_ta', '6.8');
+L154: const [useDynamicBomMode, setUseDynamicBomMode] = useLocalStorageState<boolean>(
+L182: const { params: flexParams, plan: flexPlan } = useFlexibleProtocol();
 ```
 
 ### `src/components/PhotoDiaryAndVintagePanel.tsx` (2083 lines)
@@ -1691,7 +1754,7 @@ L1032: const [showVintagePassport, setShowVintagePassport] = useState(false);
 L1033: const [passportCopied, setPassportCopied] = useState(false);
 ```
 
-### `src/components/ProcessRoadmapTracker.tsx` (2507 lines)
+### `src/components/ProcessRoadmapTracker.tsx` (2534 lines)
 ```ts
 // --- Imports ---
 import React, { useState, useEffect, useMemo } from 'react';
@@ -1708,6 +1771,7 @@ import type { TankId, FermentationLogEntry } from '../types/tracking.ts';
 import type { ChemicalAddition, LabAnalysisRecord } from '../types/database.ts';
 import { ZERO_TO_HUNDRED_STEPS, getStepLabTools, type ProcessStep, type StepLabToolLink } from "../data/roadmapStepsData.ts";
 import { getSmartAdditivePresets } from '../data/smartLoggingPresets.ts';
+import { formatProtocolTextWithYeast, getYeastStrainById } from '../data/yeastStrainsData.ts';
 // --- Props & Types ---
 export interface ProcessRoadmapTrackerProps {
   onNavigateToTracking?: () => void;
@@ -1743,47 +1807,47 @@ export interface GlobalActiveTimerItem {
   isCompletedCountdown: boolean;
 }
 // --- State & Protocol Hooks ---
-L363: const { params: flexParams, plan: flexPlan, isModifiedFromIdeal } = useFlexibleProtocol();
-L396: const [showFlexibleCustomizer, setShowFlexibleCustomizer] = useState<boolean>(false);
-L397: const [showTimerHub, setShowTimerHub] = useState<boolean>(false);
-L398: const [isQuickLogModalOpen, setIsQuickLogModalOpen] = useState<boolean>(false);
-L399: const [rightNowRefreshKey, setRightNowRefreshKey] = useState<number>(0);
-L407: const [anchorTime, setAnchorTime] = useLocalStorageState<string>(`enology_day0_anchor_time${batchKeySuffix}`, '14:30');
-L408: const [saigneeOffsetHours, setSaigneeOffsetHours] = useLocalStorageState<number>(`enology_day0_saignee_offset_hours${batchKeySuffix}`, 3.0);
-L409: const [enzymeOffsetHours, setEnzymeOffsetHours] = useLocalStorageState<number>(`enology_day0_enzyme_offset_hours${batchKeySuffix}`, 7.5);
-L412: const [customTimers, setCustomTimers] = useLocalStorageState<WorkshopTimerConfig[]>('enology_custom_workshop_timers', []);
-L413: const [newCustomTitle, setNewCustomTitle] = useState('');
-L414: const [newCustomMins, setNewCustomMins] = useState(15);
-L415: const [newCustomStepId, setNewCustomStepId] = useState(1);
-L418: const [timerDurations, setTimerDurations] = useLocalStorageState<
-L426: const [timerElapsed, setTimerElapsed] = useLocalStorageState<Record<string, number>>('enology_timer_elapsed_v1', {});
-L427: const [timerRunning, setTimerRunning] = useLocalStorageState<Record<string, boolean>>('enology_timer_running_v1', {});
-L428: const [timerChimed, setTimerChimed] = useState<Record<string, boolean>>({});
-L560: const [hideDisabledRoseSteps, setHideDisabledRoseSteps] = useState<boolean>(
-L621: const [currentStepId, setCurrentStepId] = useLocalStorageState<number>(`enology_active_roadmap_step${batchKeySuffix}`, 1);
-L622: const [completedSteps, setCompletedSteps] = useLocalStorageState<number[]>(`enology_completed_roadmap_steps${batchKeySuffix}`, []);
-L631: const [filterPhase, setFilterPhase] = useState<number | 'all'>(() => activePhaseNumber);
-L632: const [searchQuery, setSearchQuery] = useState('');
-L633: const [toastMessage, setToastMessage] = useState<string | null>(null);
-L634: const [focusedStepHaloNumber, setFocusedStepHaloNumber] = useState<
-L661: const [quickTankState, setQuickTankState] = useState<TankId>(effectiveSingleTankId);
-L674: const [quickDay, setQuickDay] = useState<number>(1);
-L675: const [quickSG, setQuickSG] = useState<number>(1.083);
-L676: const [quickBrix, setQuickBrix] = useState<number>(20.0);
-L677: const [quickTempCap, setQuickTempCap] = useState<number>(23.0);
-L678: const [quickTempRoom, setQuickTempRoom] = useState<number>(21.0);
-L679: const [quickPH, setQuickPH] = useState<number>(3.52);
-L680: const [quickTA, setQuickTA] = useState<number>(6.8);
-L681: const [quickPhTouched, setQuickPhTouched] = useState<boolean>(false);
-L682: const [quickTaTouched, setQuickTaTouched] = useState<boolean>(false);
-L683: const [quickNote, setQuickNote] = useState<string>('');
-L686: const [selectedRoadmapChemPresetId, setSelectedRoadmapChemPresetId] = useState<string>('');
-L687: const [chemName, setChemName] = useState<string>('متابی‌سولفیت پتاسیم (KMS)');
-L688: const [chemAmount, setChemAmount] = useState<string>('6.52g');
-L689: const [chemPurpose, setChemPurpose] = useState<string>('کنترل میکروبی و آنتی‌اکسیدانی اولیه');
+L368: const { params: flexParams, plan: flexPlan, isModifiedFromIdeal } = useFlexibleProtocol();
+L401: const [showFlexibleCustomizer, setShowFlexibleCustomizer] = useState<boolean>(false);
+L402: const [showTimerHub, setShowTimerHub] = useState<boolean>(false);
+L403: const [isQuickLogModalOpen, setIsQuickLogModalOpen] = useState<boolean>(false);
+L404: const [rightNowRefreshKey, setRightNowRefreshKey] = useState<number>(0);
+L412: const [anchorTime, setAnchorTime] = useLocalStorageState<string>(`enology_day0_anchor_time${batchKeySuffix}`, '14:30');
+L413: const [saigneeOffsetHours, setSaigneeOffsetHours] = useLocalStorageState<number>(`enology_day0_saignee_offset_hours${batchKeySuffix}`, 3.0);
+L414: const [enzymeOffsetHours, setEnzymeOffsetHours] = useLocalStorageState<number>(`enology_day0_enzyme_offset_hours${batchKeySuffix}`, 7.5);
+L417: const [customTimers, setCustomTimers] = useLocalStorageState<WorkshopTimerConfig[]>('enology_custom_workshop_timers', []);
+L418: const [newCustomTitle, setNewCustomTitle] = useState('');
+L419: const [newCustomMins, setNewCustomMins] = useState(15);
+L420: const [newCustomStepId, setNewCustomStepId] = useState(1);
+L423: const [timerDurations, setTimerDurations] = useLocalStorageState<
+L431: const [timerElapsed, setTimerElapsed] = useLocalStorageState<Record<string, number>>('enology_timer_elapsed_v1', {});
+L432: const [timerRunning, setTimerRunning] = useLocalStorageState<Record<string, boolean>>('enology_timer_running_v1', {});
+L433: const [timerChimed, setTimerChimed] = useState<Record<string, boolean>>({});
+L565: const [hideDisabledRoseSteps, setHideDisabledRoseSteps] = useState<boolean>(
+L634: const [currentStepId, setCurrentStepId] = useLocalStorageState<number>(`enology_active_roadmap_step${batchKeySuffix}`, 1);
+L635: const [completedSteps, setCompletedSteps] = useLocalStorageState<number[]>(`enology_completed_roadmap_steps${batchKeySuffix}`, []);
+L644: const [filterPhase, setFilterPhase] = useState<number | 'all'>(() => activePhaseNumber);
+L645: const [searchQuery, setSearchQuery] = useState('');
+L646: const [toastMessage, setToastMessage] = useState<string | null>(null);
+L647: const [focusedStepHaloNumber, setFocusedStepHaloNumber] = useState<
+L674: const [quickTankState, setQuickTankState] = useState<TankId>(effectiveSingleTankId);
+L687: const [quickDay, setQuickDay] = useState<number>(1);
+L688: const [quickSG, setQuickSG] = useState<number>(1.083);
+L689: const [quickBrix, setQuickBrix] = useState<number>(20.0);
+L690: const [quickTempCap, setQuickTempCap] = useState<number>(23.0);
+L691: const [quickTempRoom, setQuickTempRoom] = useState<number>(21.0);
+L692: const [quickPH, setQuickPH] = useState<number>(3.52);
+L693: const [quickTA, setQuickTA] = useState<number>(6.8);
+L694: const [quickPhTouched, setQuickPhTouched] = useState<boolean>(false);
+L695: const [quickTaTouched, setQuickTaTouched] = useState<boolean>(false);
+L696: const [quickNote, setQuickNote] = useState<string>('');
+L699: const [selectedRoadmapChemPresetId, setSelectedRoadmapChemPresetId] = useState<string>('');
+L700: const [chemName, setChemName] = useState<string>('متابی‌سولفیت پتاسیم (KMS)');
+L701: const [chemAmount, setChemAmount] = useState<string>('6.52g');
+L702: const [chemPurpose, setChemPurpose] = useState<string>('کنترل میکروبی و آنتی‌اکسیدانی اولیه');
 ```
 
-### `src/components/QuickTenSecondLogModal.tsx` (2585 lines)
+### `src/components/QuickTenSecondLogModal.tsx` (2604 lines)
 ```ts
 // --- Imports ---
 import React, { useEffect, useMemo, useState } from 'react';
@@ -1863,14 +1927,14 @@ L343: const [operationNote, setOperationNote] = useState<string>('');
 L346: const [hasExplicitPhInput, setHasExplicitPhInput] = useState<boolean>(false);
 L347: const [hasExplicitTaInput, setHasExplicitTaInput] = useState<boolean>(false);
 L348: const [hasExplicitSo2Input, setHasExplicitSo2Input] = useState<boolean>(false);
-L355: const [rawAdditionAmount, setRawAdditionAmount] = useState<string>('');
-L356: const [additionLotNumber, setAdditionLotNumber] = useState<string>('');
-L357: const [additionNote, setAdditionNote] = useState<string>('');
-L362: const [rawLabValue, setRawLabValue] = useState<string>('');
-L363: const [labNote, setLabNote] = useState<string>('');
+L357: const [rawAdditionAmount, setRawAdditionAmount] = useState<string>('');
+L358: const [additionLotNumber, setAdditionLotNumber] = useState<string>('');
+L359: const [additionNote, setAdditionNote] = useState<string>('');
+L364: const [rawLabValue, setRawLabValue] = useState<string>('');
+L365: const [labNote, setLabNote] = useState<string>('');
 ```
 
-### `src/components/RightNowActionCenter.tsx` (2061 lines)
+### `src/components/RightNowActionCenter.tsx` (2087 lines)
 ```ts
 // --- Imports ---
 import React, { useEffect, useMemo, useState } from 'react';
@@ -1919,21 +1983,21 @@ interface UndoSession {
 }
 // --- State & Protocol Hooks ---
 L129: const { plan } = useFlexibleProtocol();
-L158: const [refreshTick, setRefreshTick] = useState(0);
-L182: const [showLayer2Why, setShowLayer2Why] = useState(false);
-L183: const [showLayer3Science, setShowLayer3Science] = useState(false);
-L184: const [showAllDeadlinesToggle, setShowAllDeadlinesToggle] = useState(false);
-L185: const [skippingMilestoneId, setSkippingMilestoneId] = useState<string | null>(
-L188: const [skipReasonInput, setSkipReasonInput] = useState('');
-L191: const [undoSession, setUndoSession] = useState<UndoSession | null>(null);
-L192: const [showBottlingGate, setShowBottlingGate] = useState(false);
-L193: const [expandedBottlingWhyId, setExpandedBottlingWhyId] = useState<
-L196: const [riskOverrideReason, setRiskOverrideReason] = useState('');
-L197: const [bottlingUnlockedNotice, setBottlingUnlockedNotice] = useState(false);
-L198: const [confirmingRealBatchReset, setConfirmingRealBatchReset] = useState(false);
+L159: const [refreshTick, setRefreshTick] = useState(0);
+L183: const [showLayer2Why, setShowLayer2Why] = useState(false);
+L184: const [showLayer3Science, setShowLayer3Science] = useState(false);
+L185: const [showAllDeadlinesToggle, setShowAllDeadlinesToggle] = useState(false);
+L186: const [skippingMilestoneId, setSkippingMilestoneId] = useState<string | null>(
+L189: const [skipReasonInput, setSkipReasonInput] = useState('');
+L192: const [undoSession, setUndoSession] = useState<UndoSession | null>(null);
+L193: const [showBottlingGate, setShowBottlingGate] = useState(false);
+L194: const [expandedBottlingWhyId, setExpandedBottlingWhyId] = useState<
+L197: const [riskOverrideReason, setRiskOverrideReason] = useState('');
+L198: const [bottlingUnlockedNotice, setBottlingUnlockedNotice] = useState(false);
+L199: const [confirmingRealBatchReset, setConfirmingRealBatchReset] = useState(false);
 ```
 
-### `src/components/TestingGuide.tsx` (4730 lines)
+### `src/components/TestingGuide.tsx` (5044 lines)
 ```ts
 // --- Imports ---
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -1948,6 +2012,8 @@ import { InteractiveLabWizardsPanel } from './InteractiveLabWizardsPanel.tsx';
 import { useEnologyUi } from '../context/EnologyUiContext.tsx';
 import { getLabToolEquipmentCompatibility } from '../utils/equipmentAdapterEngine.ts';
 import { calculateTitratableAcidity, calculateTartaricAddition, calculateKHCO3Deacidification, calculateDeacidificationOptions, calculateFreeSO2Ripper, calculateMolecularSO2, correctHydrometer, calculateKMS, calculateRefractometerCorrection, calculateSNAAmounts, calculateBenchFiningGrams, calculateCoolingDryIceKg, getEffectiveLiquidVolume, isAlreadyLiquidVolume, getTargetFreeSO2ByPH, calculateDynamicSGTriggers, calculateH2O2SulfiteRemoval, estimateAcidOrBaseFromPHShift, calculateStagedH2O2Plan, calculateStockSolutionPlan, computeGraduatedSyringeMetrics, buildCalculatorDirectAdditions, type CalculatorDirectDoseKind } from '../utils/enologyUtils.ts';
+import { optimizeNutrientScheduleFromInventory, getDefaultIdealNutrientInventoryGrams } from '../utils/nutrientInventoryOptimizer.ts';
+import { getYeastStrainById } from '../data/yeastStrainsData.ts';
 import { getCurrentPersianDateTimeStr } from '../utils/persianDate.ts';
 // --- Props & Types ---
 export type LabHubSubTab = 'calculators-sops' | 'troubleshooting-crises' | 'saved-history';
@@ -1957,78 +2023,78 @@ export interface TestingGuideProps {
   initialActiveSubTab?: LabHubSubTab;
 }
 // --- State & Protocol Hooks ---
-L244: const [onlyMyEquipmentTools, setOnlyMyEquipmentTools] = useState<boolean>(false);
-L245: const [activeSubTab, setActiveSubTab] = useState<LabHubSubTab>(initialActiveSubTab);
-L246: const [selectedFilter, setSelectedFilter] = useState<string>(() =>
-L249: const [focusedHaloTestId, setFocusedHaloTestId] = useState<string | null>(null);
-L250: const [selectedWizardOverride, setSelectedWizardOverride] = useState<
-L253: const [savedCalculations, setSavedCalculations] = useState<SavedCalculation[]>(() =>
-L256: const [toastMessage, setToastMessage] = useState<string | null>(null);
-L258: const [ledgerUndoToast, setLedgerUndoToast] = useState<{
-L263: const [showAllTsAlerts, setShowAllTsAlerts] = useState<boolean>(false);
-L264: const [expandedTsScienceIds, setExpandedTsScienceIds] = useState<Record<number, boolean>>({});
-L344: const [expandedTests, setExpandedTests] = useState<Record<string, boolean>>({
-L398: const { params: flexParams, plan: flexPlan } = useFlexibleProtocol();
-L417: const [hydroMeasuredSG, setHydroMeasuredSG] = useLocalStorageState<number>('enology_calc_hydro_sg', 1.006);
-L418: const [hydroTemp, setHydroTemp] = useLocalStorageState<number>('enology_calc_hydro_temp', 28);
-L419: const [refractOrigBrix, setRefractOrigBrix] = useLocalStorageState<number>('enology_calc_refract_orig_brix', 22);
-L420: const [refractReadingBrix, setRefractReadingBrix] = useLocalStorageState<number>('enology_calc_refract_curr_brix', 11.5);
-L465: const [taNaOHVol, setTaNaOHVol] = useLocalStorageState<number>('enology_calc_ta_naoh_vol', 4.2);
-L466: const [taNaOHNorm, setTaNaOHNorm] = useLocalStorageState<number>('enology_calc_ta_naoh_norm', 0.1);
-L467: const [taSampleVol, setTaSampleVol] = useLocalStorageState<number>('enology_calc_ta_sample_vol', 5);
-L468: const [taTarget, setTaTarget] = useLocalStorageState<number>('enology_calc_ta_target', 6.5);
-L469: const [taBatchVolume, setTaBatchVolume] = useLocalStorageState<number>('enology_calc_ta_batch_vol', 132);
-L470: const [taUnpressedMash, setTaUnpressedMash] = useLocalStorageState<boolean>('enology_calc_ta_unpressed', false);
-L508: const [samplePH, setSamplePH] = useLocalStorageState<number>('enology_calc_ph_sample', 3.65);
-L509: const [targetPH, setTargetPH] = useLocalStorageState<number>('enology_calc_ph_target', 3.52);
-L510: const [phBatchVolume, setPhBatchVolume] = useLocalStorageState<number>('enology_calc_ph_vol', 132);
-L511: const [phUnpressedMash, setPhUnpressedMash] = useLocalStorageState<boolean>('enology_calc_ph_unpressed', false);
-L558: const [ripperI2Vol, setRipperI2Vol] = useLocalStorageState<number>('enology_calc_ripper_i2_vol', 1.4);
-L559: const [ripperI2Norm, setRipperI2Norm] = useLocalStorageState<number>('enology_calc_ripper_i2_norm', 0.02);
-L560: const [ripperSampleVol, setRipperSampleVol] = useLocalStorageState<number>('enology_calc_ripper_sample_vol', 25);
-L561: const [winePHForSO2, setWinePHForSO2] = useLocalStorageState<number>('enology_calc_so2_ph', 3.52);
-L562: const [kmsCurrentSO2, setKmsCurrentSO2] = useLocalStorageState<number>('enology_calc_kms_current_so2', 18);
-L563: const [kmsTargetSO2, setKmsTargetSO2] = useLocalStorageState<number>('enology_calc_kms_target_so2', 35);
-L564: const [kmsVolume, setKmsVolume] = useLocalStorageState<number>('enology_calc_kms_vol', 105);
-L565: const [kmsUnpressedMash, setKmsUnpressedMash] = useLocalStorageState<boolean>('enology_calc_kms_unpressed', false);
-L566: const [useRipperForKMS, setUseRipperForKMS] = useLocalStorageState<boolean>('enology_calc_kms_use_ripper', false);
-L597: const [snaBrix, setSnaBrix] = useLocalStorageState<number>('enology_calc_yan_brix', 22);
-L598: const [snaVolume, setSnaVolume] = useLocalStorageState<number>('enology_calc_yan_vol', 132);
-L599: const [snaNaturalYAN, setSnaNaturalYAN] = useLocalStorageState<number>('enology_calc_yan_natural', 100);
-L600: const [snaStrainDemand, setSnaStrainDemand] = useLocalStorageState<'low' | 'medium' | 'high'>(
-L604: const [snaUnpressedMash, setSnaUnpressedMash] = useLocalStorageState<boolean>('enology_calc_yan_unpressed', false);
-L652: const [capTempCurrent, setCapTempCurrent] = useLocalStorageState<number>('enology_calc_cool_curr_temp', 29.5);
-L653: const [capTempTarget, setCapTempTarget] = useLocalStorageState<number>('enology_calc_cool_target_temp', 26.5);
-L654: const [coolingBatchVol, setCoolingBatchVol] = useLocalStorageState<number>('enology_calc_cool_vol', 132);
-L684: const [drynessSG, setDrynessSG] = useLocalStorageState<number>('enology_calc_dryness_sg', 0.993);
-L685: const [drynessStableDays, setDrynessStableDays] = useLocalStorageState<number>('enology_calc_dryness_days', 3);
-L686: const [drynessRS, setDrynessRS] = useLocalStorageState<number>('enology_calc_dryness_rs', 1.5);
-L712: const [finingTrialRate, setFiningTrialRate] = useLocalStorageState<number>('enology_calc_fining_rate', 0.2); // g/L
-L713: const [finingTankVol, setFiningTankVol] = useLocalStorageState<number>('enology_calc_fining_vol', 36);
-L714: const [copperDoseMgL, setCopperDoseMgL] = useLocalStorageState<number>('enology_calc_copper_dose', 0.25); // mg/L
-L715: const [copperTankVol, setCopperTankVol] = useLocalStorageState<number>('enology_calc_copper_vol', 105);
-L745: const [grapeWeight, setGrapeWeight] = useLocalStorageState<number>('enology_calc_grape_weight', 400);
-L792: const [tsVol, setTsVol] = useLocalStorageState<number>('enology_calc_ts_vol', 132);
-L793: const [tsSG, setTsSG] = useLocalStorageState<number>('enology_calc_ts_sg', 1.060);
-L794: const [tsBrix, setTsBrix] = useLocalStorageState<number>('enology_calc_ts_brix', 14.5);
-L795: const [tsTemp, setTsTemp] = useLocalStorageState<number>('enology_calc_ts_temp', 28.5);
-L796: const [tsPH, setTsPH] = useLocalStorageState<number>('enology_calc_ts_ph', 3.65);
-L797: const [tsTA, setTsTA] = useLocalStorageState<number>('enology_calc_ts_ta', 6.2);
-L798: const [tsSO2, setTsSO2] = useLocalStorageState<number>('enology_calc_ts_so2', 20);
-L799: const [tsUnpressed, setTsUnpressed] = useLocalStorageState<boolean>('enology_calc_ts_unpressed', false);
-L800: const [tsStuck, setTsStuck] = useLocalStorageState<boolean>('enology_calc_ts_stuck', false);
-L801: const [tsH2S, setTsH2S] = useLocalStorageState<boolean>('enology_calc_ts_h2s', false);
-L802: const [tsVA, setTsVA] = useLocalStorageState<boolean>('enology_calc_ts_va', false);
-L803: const [tsDryCap, setTsDryCap] = useLocalStorageState<boolean>('enology_calc_ts_dry_cap', false);
-L804: const [tsBitterSeeds, setTsBitterSeeds] = useLocalStorageState<boolean>('enology_calc_ts_bitter_seeds', false);
-L805: const [tsCloudy, setTsCloudy] = useLocalStorageState<boolean>('enology_calc_ts_cloudy', false);
-L806: const [tsIsRose, setTsIsRose] = useLocalStorageState<boolean>('enology_calc_ts_is_rose', false);
-L807: const [postPressActualVol, setPostPressActualVol] = useLocalStorageState<number>('enology_calc_post_press_vol', 96);
-L808: const [blendPressPct, setBlendPressPct] = useLocalStorageState<number>('enology_calc_blend_press_pct', 3);
-L809: const [glycerinDoseGL, setGlycerinDoseGL] = useLocalStorageState<number>('enology_calc_glycerin_dose', 2.5);
+L254: const [onlyMyEquipmentTools, setOnlyMyEquipmentTools] = useState<boolean>(false);
+L255: const [activeSubTab, setActiveSubTab] = useState<LabHubSubTab>(initialActiveSubTab);
+L256: const [selectedFilter, setSelectedFilter] = useState<string>(() =>
+L259: const [focusedHaloTestId, setFocusedHaloTestId] = useState<string | null>(null);
+L260: const [selectedWizardOverride, setSelectedWizardOverride] = useState<
+L263: const [savedCalculations, setSavedCalculations] = useState<SavedCalculation[]>(() =>
+L266: const [toastMessage, setToastMessage] = useState<string | null>(null);
+L268: const [ledgerUndoToast, setLedgerUndoToast] = useState<{
+L273: const [showAllTsAlerts, setShowAllTsAlerts] = useState<boolean>(false);
+L274: const [expandedTsScienceIds, setExpandedTsScienceIds] = useState<Record<number, boolean>>({});
+L356: const [expandedTests, setExpandedTests] = useState<Record<string, boolean>>({
+L410: const { params: flexParams, plan: flexPlan } = useFlexibleProtocol();
+L429: const [hydroMeasuredSG, setHydroMeasuredSG] = useLocalStorageState<number>('enology_calc_hydro_sg', 1.006);
+L430: const [hydroTemp, setHydroTemp] = useLocalStorageState<number>('enology_calc_hydro_temp', 28);
+L431: const [refractOrigBrix, setRefractOrigBrix] = useLocalStorageState<number>('enology_calc_refract_orig_brix', 22);
+L432: const [refractReadingBrix, setRefractReadingBrix] = useLocalStorageState<number>('enology_calc_refract_curr_brix', 11.5);
+L477: const [taNaOHVol, setTaNaOHVol] = useLocalStorageState<number>('enology_calc_ta_naoh_vol', 4.2);
+L478: const [taNaOHNorm, setTaNaOHNorm] = useLocalStorageState<number>('enology_calc_ta_naoh_norm', 0.1);
+L479: const [taSampleVol, setTaSampleVol] = useLocalStorageState<number>('enology_calc_ta_sample_vol', 5);
+L480: const [taTarget, setTaTarget] = useLocalStorageState<number>('enology_calc_ta_target', 6.5);
+L481: const [taBatchVolume, setTaBatchVolume] = useLocalStorageState<number>('enology_calc_ta_batch_vol', 132);
+L482: const [taUnpressedMash, setTaUnpressedMash] = useLocalStorageState<boolean>('enology_calc_ta_unpressed', false);
+L520: const [samplePH, setSamplePH] = useLocalStorageState<number>('enology_calc_ph_sample', 3.65);
+L521: const [targetPH, setTargetPH] = useLocalStorageState<number>('enology_calc_ph_target', 3.52);
+L522: const [phBatchVolume, setPhBatchVolume] = useLocalStorageState<number>('enology_calc_ph_vol', 132);
+L523: const [phUnpressedMash, setPhUnpressedMash] = useLocalStorageState<boolean>('enology_calc_ph_unpressed', false);
+L570: const [ripperI2Vol, setRipperI2Vol] = useLocalStorageState<number>('enology_calc_ripper_i2_vol', 1.4);
+L571: const [ripperI2Norm, setRipperI2Norm] = useLocalStorageState<number>('enology_calc_ripper_i2_norm', 0.02);
+L572: const [ripperSampleVol, setRipperSampleVol] = useLocalStorageState<number>('enology_calc_ripper_sample_vol', 25);
+L573: const [winePHForSO2, setWinePHForSO2] = useLocalStorageState<number>('enology_calc_so2_ph', 3.52);
+L574: const [kmsCurrentSO2, setKmsCurrentSO2] = useLocalStorageState<number>('enology_calc_kms_current_so2', 18);
+L575: const [kmsTargetSO2, setKmsTargetSO2] = useLocalStorageState<number>('enology_calc_kms_target_so2', 35);
+L576: const [kmsVolume, setKmsVolume] = useLocalStorageState<number>('enology_calc_kms_vol', 105);
+L577: const [kmsUnpressedMash, setKmsUnpressedMash] = useLocalStorageState<boolean>('enology_calc_kms_unpressed', false);
+L578: const [useRipperForKMS, setUseRipperForKMS] = useLocalStorageState<boolean>('enology_calc_kms_use_ripper', false);
+L609: const [snaBrix, setSnaBrix] = useLocalStorageState<number>('enology_calc_yan_brix', 22);
+L610: const [snaVolume, setSnaVolume] = useLocalStorageState<number>('enology_calc_yan_vol', 132);
+L611: const [snaNaturalYAN, setSnaNaturalYAN] = useLocalStorageState<number>('enology_calc_yan_natural', 100);
+L612: const [snaStrainDemand, setSnaStrainDemand] = useLocalStorageState<'low' | 'medium' | 'high'>(
+L616: const [snaUnpressedMash, setSnaUnpressedMash] = useLocalStorageState<boolean>('enology_calc_yan_unpressed', false);
+L664: const [capTempCurrent, setCapTempCurrent] = useLocalStorageState<number>('enology_calc_cool_curr_temp', 29.5);
+L665: const [capTempTarget, setCapTempTarget] = useLocalStorageState<number>('enology_calc_cool_target_temp', 26.5);
+L666: const [coolingBatchVol, setCoolingBatchVol] = useLocalStorageState<number>('enology_calc_cool_vol', 132);
+L696: const [drynessSG, setDrynessSG] = useLocalStorageState<number>('enology_calc_dryness_sg', 0.993);
+L697: const [drynessStableDays, setDrynessStableDays] = useLocalStorageState<number>('enology_calc_dryness_days', 3);
+L698: const [drynessRS, setDrynessRS] = useLocalStorageState<number>('enology_calc_dryness_rs', 1.5);
+L724: const [finingTrialRate, setFiningTrialRate] = useLocalStorageState<number>('enology_calc_fining_rate', 0.2); // g/L
+L725: const [finingTankVol, setFiningTankVol] = useLocalStorageState<number>('enology_calc_fining_vol', 36);
+L726: const [copperDoseMgL, setCopperDoseMgL] = useLocalStorageState<number>('enology_calc_copper_dose', 0.25); // mg/L
+L727: const [copperTankVol, setCopperTankVol] = useLocalStorageState<number>('enology_calc_copper_vol', 105);
+L757: const [grapeWeight, setGrapeWeight] = useLocalStorageState<number>('enology_calc_grape_weight', 400);
+L840: const [tsVol, setTsVol] = useLocalStorageState<number>('enology_calc_ts_vol', 132);
+L841: const [tsSG, setTsSG] = useLocalStorageState<number>('enology_calc_ts_sg', 1.060);
+L842: const [tsBrix, setTsBrix] = useLocalStorageState<number>('enology_calc_ts_brix', 14.5);
+L843: const [tsTemp, setTsTemp] = useLocalStorageState<number>('enology_calc_ts_temp', 28.5);
+L844: const [tsPH, setTsPH] = useLocalStorageState<number>('enology_calc_ts_ph', 3.65);
+L845: const [tsTA, setTsTA] = useLocalStorageState<number>('enology_calc_ts_ta', 6.2);
+L846: const [tsSO2, setTsSO2] = useLocalStorageState<number>('enology_calc_ts_so2', 20);
+L847: const [tsUnpressed, setTsUnpressed] = useLocalStorageState<boolean>('enology_calc_ts_unpressed', false);
+L848: const [tsStuck, setTsStuck] = useLocalStorageState<boolean>('enology_calc_ts_stuck', false);
+L849: const [tsH2S, setTsH2S] = useLocalStorageState<boolean>('enology_calc_ts_h2s', false);
+L850: const [tsVA, setTsVA] = useLocalStorageState<boolean>('enology_calc_ts_va', false);
+L851: const [tsDryCap, setTsDryCap] = useLocalStorageState<boolean>('enology_calc_ts_dry_cap', false);
+L852: const [tsBitterSeeds, setTsBitterSeeds] = useLocalStorageState<boolean>('enology_calc_ts_bitter_seeds', false);
+L853: const [tsCloudy, setTsCloudy] = useLocalStorageState<boolean>('enology_calc_ts_cloudy', false);
+L854: const [tsIsRose, setTsIsRose] = useLocalStorageState<boolean>('enology_calc_ts_is_rose', false);
+L855: const [postPressActualVol, setPostPressActualVol] = useLocalStorageState<number>('enology_calc_post_press_vol', 96);
+L856: const [blendPressPct, setBlendPressPct] = useLocalStorageState<number>('enology_calc_blend_press_pct', 3);
+L857: const [glycerinDoseGL, setGlycerinDoseGL] = useLocalStorageState<number>('enology_calc_glycerin_dose', 2.5);
 ```
 
-### `src/components/YeastStrainSelectorModal.tsx` (762 lines)
+### `src/components/YeastStrainSelectorModal.tsx` (763 lines)
 ```ts
 // --- Imports ---
 import React, { useEffect, useMemo, useState } from 'react';
@@ -2046,14 +2112,14 @@ export interface YeastStrainSelectorModalProps {
 type GoalRecommendationKey =
 type GoalFilterChoice = GoalRecommendationKey | 'none';
 // --- State & Protocol Hooks ---
-L99: const { params } = useFlexibleProtocol();
-L109: const [targetTank, setTargetTank] = useState<GlobalTankSelection>(resolveInitialTarget);
-L110: const [searchQuery, setSearchQuery] = useState<string>('');
-L111: const [selectedBrand, setSelectedBrand] = useState<YeastBrand | 'all'>('all');
-L112: const [selectedCategory, setSelectedCategory] = useState<YeastCategory | 'all'>('all');
-L113: const [selectedGoal, setSelectedGoal] = useState<GoalFilterChoice>('none');
-L120: const [previewStrainId, setPreviewStrainId] = useState<string>(currentAssignedStrain.id);
-L121: const [previewMustBrix, setPreviewMustBrix] = useState<number>(params.initialBrix || 24);
-L122: const [previewVolumeL, setPreviewVolumeL] = useState<number>(
-L125: const [hasFermaidK, setHasFermaidK] = useState<boolean>(true);
+L100: const { params } = useFlexibleProtocol();
+L110: const [targetTank, setTargetTank] = useState<GlobalTankSelection>(resolveInitialTarget);
+L111: const [searchQuery, setSearchQuery] = useState<string>('');
+L112: const [selectedBrand, setSelectedBrand] = useState<YeastBrand | 'all'>('all');
+L113: const [selectedCategory, setSelectedCategory] = useState<YeastCategory | 'all'>('all');
+L114: const [selectedGoal, setSelectedGoal] = useState<GoalFilterChoice>('none');
+L121: const [previewStrainId, setPreviewStrainId] = useState<string>(currentAssignedStrain.id);
+L122: const [previewMustBrix, setPreviewMustBrix] = useState<number>(params.initialBrix || 24);
+L123: const [previewVolumeL, setPreviewVolumeL] = useState<number>(
+L126: const [hasFermaidK, setHasFermaidK] = useState<boolean>(true);
 ```
